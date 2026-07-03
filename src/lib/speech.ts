@@ -21,6 +21,15 @@ const DEFAULT_TTS_RATE = 0.7;
 // đang dạy. Vì vậy toàn bộ audio trong app phải dùng giọng Anh-Anh.
 const DEFAULT_LANG = "en-GB";
 
+// Nhận diện giọng nói (STT) lại là chuyện khác: bé là người Việt học tiếng
+// Anh, giọng đọc chắc chắn không chuẩn bản xứ dù Anh-Anh hay Anh-Mỹ. Model
+// nhận diện "en-US" của Google được huấn luyện trên lượng dữ liệu lớn hơn
+// và bao dung hơn với giọng không bản xứ so với "en-GB" — dùng "en-GB" cho
+// STT chỉ khiến app "nghe" sai nhiều hơn mà không giúp gì cho việc dạy
+// phát âm (phần dạy phát âm British vẫn nằm ở TTS/quy tắc, không liên quan
+// đến việc máy có nhận ra đúng từ bé vừa nói hay không).
+const RECOGNITION_LANG = "en-US";
+
 // Danh sách giọng đọc có sẵn của trình duyệt chỉ được nạp bất đồng bộ; cache
 // lại và lắng nghe sự kiện "voiceschanged" để khi người dùng bấm nghe lần
 // đầu, danh sách gần như chắc chắn đã có sẵn.
@@ -48,6 +57,19 @@ function pickEnglishVoice(preferredLangPrefix: string): SpeechSynthesisVoice | u
 
 export function speak(text: string, opts?: { rate?: number; lang?: string }): void {
   if (!isSpeechSynthesisSupported()) return;
+  const voices = cachedVoices.length > 0 ? cachedVoices : window.speechSynthesis.getVoices();
+  if (voices.length === 0) {
+    // Chrome trên Android thường chưa nạp xong danh sách giọng đọc ngay lần
+    // bấm đầu tiên (sự kiện "voiceschanged" bắn hơi trễ) — nếu gọi speak()
+    // ngay lúc này rất dễ ra im lặng hoàn toàn. Đợi 1 nhịp ngắn rồi thử lại
+    // đúng 1 lần thay vì bỏ cuộc luôn.
+    window.setTimeout(() => speakNow(text, opts), 300);
+    return;
+  }
+  speakNow(text, opts);
+}
+
+function speakNow(text: string, opts?: { rate?: number; lang?: string }): void {
   window.speechSynthesis.cancel();
   const utter = new SpeechSynthesisUtterance(text);
   const preferredLang = opts?.lang ?? DEFAULT_LANG;
@@ -85,32 +107,88 @@ export interface StartRecognitionOptions {
 }
 
 export function startRecognition(opts: StartRecognitionOptions): RecognitionHandle | null {
-  const Ctor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-  if (!Ctor) return null;
+  const maybeCtor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+  if (!maybeCtor) return null;
+  const Ctor = maybeCtor;
 
-  const recognition = new Ctor();
-  recognition.lang = opts.lang ?? DEFAULT_LANG;
-  recognition.continuous = opts.continuous ?? true;
-  recognition.interimResults = true;
-  recognition.maxAlternatives = 1;
+  // Chrome trên Android thường tự kết thúc phiên nghe sau một khoảng lặng
+  // ngắn dù đã đặt continuous=true (khác hẳn Chrome desktop) — nếu coi đó
+  // là "nghe xong" thì bé chưa kịp đọc gì app đã dừng. Vì vậy phải tự khởi
+  // động lại phiên nghe mới bất cứ khi nào onend xảy ra mà KHÔNG phải do
+  // người dùng chủ động bấm dừng, và cộng dồn transcript qua các phiên.
+  let stoppedByUser = false;
+  // Văn bản đã "chốt" từ các phiên nghe TRƯỚC (trước khi bị Android tự ngắt
+  // và khởi động lại) — cộng dồn qua các phiên, KHÁC với transcript của
+  // phiên đang chạy (lastSessionText), vì mỗi phiên mới có event.results
+  // riêng, bắt đầu lại từ rỗng.
+  let carriedTranscript = "";
+  let lastSessionText = "";
+  let lang = opts.lang ?? RECOGNITION_LANG;
+  let triedFallbackLang = false;
+  let recognition: SpeechRecognitionLike = new Ctor();
 
-  recognition.onresult = (event) => {
-    // Gộp toàn bộ kết quả từ đầu phiên nghe (không chỉ từ resultIndex trở
-    // đi) — ở chế độ continuous, mỗi câu/cụm được xác nhận (final) riêng
-    // lẻ, nếu chỉ lấy từ resultIndex sẽ làm mất phần đã đọc trước đó.
-    let transcript = "";
-    for (let i = 0; i < event.results.length; i++) {
-      transcript += event.results[i][0].transcript + " ";
-    }
-    const lastResult = event.results[event.results.length - 1];
-    opts.onResult(transcript.trim(), lastResult?.isFinal ?? false);
-  };
-  recognition.onerror = (event) => opts.onError?.(event.error);
-  recognition.onend = () => opts.onEnd?.();
+  function attach(instance: SpeechRecognitionLike) {
+    instance.lang = lang;
+    instance.continuous = opts.continuous ?? true;
+    instance.interimResults = true;
+    instance.maxAlternatives = 1;
 
-  recognition.start();
+    instance.onresult = (event) => {
+      // Tính lại TOÀN BỘ transcript của phiên hiện tại từ đầu mỗi lần có kết
+      // quả mới (event.results luôn chứa đủ lịch sử của phiên đang chạy) —
+      // KHÔNG được cộng dồn kiểu "+=" vào 1 biến ngoài, nếu không các đoạn
+      // đã chốt (final) sẽ bị nhân bản lặp lại mỗi khi có thêm kết quả mới.
+      let text = "";
+      for (let i = 0; i < event.results.length; i++) {
+        text += event.results[i][0].transcript + " ";
+      }
+      lastSessionText = text.trim();
+      opts.onResult((carriedTranscript + " " + lastSessionText).trim(), false);
+    };
+
+    instance.onerror = (event) => {
+      // Một số máy Android không hỗ trợ locale "en-GB" cho nhận diện giọng
+      // nói (chỉ có "en-US" cài sẵn) và báo lỗi ngay lập tức — thử lại 1 lần
+      // với "en-US" trước khi báo lỗi thật sự cho người dùng.
+      if (event.error === "language-not-supported" && !triedFallbackLang && lang !== "en-US") {
+        triedFallbackLang = true;
+        lang = "en-US";
+        return; // onend sẽ tự khởi động lại phiên nghe với lang mới
+      }
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        // Bị từ chối quyền micro — không có ý nghĩa để thử lại.
+        stoppedByUser = true;
+      }
+      opts.onError?.(event.error);
+    };
+
+    instance.onend = () => {
+      if (stoppedByUser) {
+        opts.onEnd?.();
+        return;
+      }
+      // Gộp phần đã nghe được của phiên vừa kết thúc vào phần "đã chốt" rồi
+      // mới mở phiên nghe mới, để không mất nội dung khi event.results reset.
+      carriedTranscript = (carriedTranscript + " " + lastSessionText).trim();
+      lastSessionText = "";
+      try {
+        recognition = new Ctor();
+        attach(recognition);
+        recognition.start();
+      } catch {
+        opts.onEnd?.();
+      }
+    };
+
+    instance.start();
+  }
+
+  attach(recognition);
 
   return {
-    stop: () => recognition.stop(),
+    stop: () => {
+      stoppedByUser = true;
+      recognition.stop();
+    },
   };
 }
