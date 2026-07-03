@@ -698,6 +698,50 @@ input {
   margin: 0;
 }
 
+/* ---------------------------------- SECTION TABS / HỘI THOẠI ------------- */
+.section-tabs {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: center;
+  margin-bottom: 1.6rem;
+  flex-wrap: wrap;
+}
+
+.section-tab {
+  border: 3px solid var(--maroon);
+  background: #fff;
+  color: var(--maroon-dark);
+  padding: 0.6rem 1.4rem;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 1.05rem;
+  cursor: pointer;
+}
+
+.section-tab.active {
+  background: var(--maroon);
+  color: #fff8e7;
+}
+
+.dialogue-turn {
+  background: var(--card);
+  border: 3px solid var(--rule-color, var(--maroon));
+  border-radius: 16px;
+  padding: 1rem 1.2rem;
+  margin-bottom: 1rem;
+}
+
+.dialogue-turn__speaker {
+  display: inline-block;
+  font-weight: 800;
+  font-size: 1rem;
+  margin-bottom: 0.6rem;
+  padding: 0.2rem 0.8rem;
+  border-radius: 999px;
+  background: var(--neutral-bg);
+  border: 2px solid currentColor;
+}
+
 @media (max-width: 640px) {
   body {
     font-size: 16px;
