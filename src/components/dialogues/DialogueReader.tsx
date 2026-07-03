@@ -3,6 +3,7 @@ import type { DialogueTopic } from "../../data/dialogues";
 import type { WordMatchResult } from "../../lib/matchWords";
 import { isSpeechRecognitionSupported, speak } from "../../lib/speech";
 import { awardStars, recordTopicScore, type AwardResult } from "../../lib/progress";
+import { buildDialogueHtml, dialogueFilename, downloadHtmlFile } from "../../lib/exportDialogue";
 import Mascot from "../mascot/Mascot";
 import RewardPopup from "../mascot/RewardPopup";
 import DialogueLineCard from "./DialogueLineCard";
@@ -33,6 +34,10 @@ export default function DialogueReader({ dialogue }: DialogueReaderProps) {
 
   function handleListenAll() {
     speak(dialogue.lines.map((l) => l.text).join(". "));
+  }
+
+  function handleDownload() {
+    downloadHtmlFile(dialogueFilename(dialogue), buildDialogueHtml(dialogue));
   }
 
   const attemptedCount = resultsByLine.filter(Boolean).length;
@@ -83,6 +88,15 @@ export default function DialogueReader({ dialogue }: DialogueReaderProps) {
 
   return (
     <div className="story-reader" style={{ "--rule-color": dialogue.color } as React.CSSProperties}>
+      <div className="btn-row" style={{ justifyContent: "center", marginBottom: "1rem" }}>
+        <button type="button" className="btn btn-ghost" onClick={handleListenAll}>
+          🔊 Nghe cả bài hội thoại
+        </button>
+        <button type="button" className="btn btn-ghost" onClick={handleDownload}>
+          📥 Tải xuống bài này
+        </button>
+      </div>
+
       <p className="score-line">
         Đã luyện {attemptedCount}/{dialogue.lines.length} câu
       </p>
@@ -107,9 +121,6 @@ export default function DialogueReader({ dialogue }: DialogueReaderProps) {
       </div>
 
       <div className="btn-row" style={{ justifyContent: "center", marginTop: "1rem" }}>
-        <button type="button" className="btn btn-ghost" onClick={handleListenAll}>
-          🔊 Nghe cả bài hội thoại
-        </button>
         <button type="button" className="btn btn-primary" onClick={handleFinish} disabled={!allAttempted}>
           {allAttempted ? "Hoàn thành 🏁" : `Hãy đọc hết ${dialogue.lines.length} câu để hoàn thành`}
         </button>

@@ -2,11 +2,11 @@ import { useState } from "react";
 import { communicationTopics, type CommTopic } from "./data/communication";
 import { dialogueTopics, type DialogueTopic } from "./data/dialogues";
 import { useRewards } from "./lib/useRewards";
+import { buildAllDialoguesHtml, downloadHtmlFile } from "./lib/exportDialogue";
 import Mascot from "./components/mascot/Mascot";
 import SpeechBubble from "./components/mascot/SpeechBubble";
 import TopicPractice from "./components/communicate/TopicPractice";
 import DialogueReader from "./components/dialogues/DialogueReader";
-import PrintableDialogues from "./components/dialogues/PrintableDialogues";
 
 type Section = "patterns" | "dialogues";
 
@@ -27,16 +27,15 @@ export default function App() {
     setSelectedDialogue(null);
   }
 
-  function handlePrintAllDialogues() {
-    window.print();
+  function handleDownloadAllDialogues() {
+    downloadHtmlFile("hoi-thoai-tat-ca.html", buildAllDialoguesHtml(dialogueTopics));
   }
 
   const showingDetail = section === "patterns" ? Boolean(selectedTopic) : Boolean(selectedDialogue);
 
   return (
-    <>
-      <div className="app-shell">
-        <nav className="navbar">
+    <div className="app-shell">
+      <nav className="navbar">
         <span className="nav-brand">💬 Luyện Giao Tiếp Tiếng Anh</span>
         <div className="reward-badge">
           <span>⭐ {rewards.totalStars}</span>
@@ -116,8 +115,8 @@ export default function App() {
             </div>
 
             <div className="btn-row" style={{ justifyContent: "center", marginBottom: "1.4rem" }}>
-              <button type="button" className="btn btn-primary" onClick={handlePrintAllDialogues}>
-                📥 Tải xuống / In tất cả {dialogueTopics.length} bài hội thoại
+              <button type="button" className="btn btn-primary" onClick={handleDownloadAllDialogues}>
+                📥 Tải xuống tất cả {dialogueTopics.length} bài hội thoại
               </button>
             </div>
 
@@ -150,7 +149,5 @@ export default function App() {
         )}
       </main>
     </div>
-    <PrintableDialogues topics={dialogueTopics} />
-    </>
   );
 }
