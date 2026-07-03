@@ -6,6 +6,7 @@ import Mascot from "./components/mascot/Mascot";
 import SpeechBubble from "./components/mascot/SpeechBubble";
 import TopicPractice from "./components/communicate/TopicPractice";
 import DialogueReader from "./components/dialogues/DialogueReader";
+import PrintableDialogues from "./components/dialogues/PrintableDialogues";
 
 type Section = "patterns" | "dialogues";
 
@@ -26,11 +27,16 @@ export default function App() {
     setSelectedDialogue(null);
   }
 
+  function handlePrintAllDialogues() {
+    window.print();
+  }
+
   const showingDetail = section === "patterns" ? Boolean(selectedTopic) : Boolean(selectedDialogue);
 
   return (
-    <div className="app-shell">
-      <nav className="navbar">
+    <>
+      <div className="app-shell">
+        <nav className="navbar">
         <span className="nav-brand">💬 Luyện Giao Tiếp Tiếng Anh</span>
         <div className="reward-badge">
           <span>⭐ {rewards.totalStars}</span>
@@ -109,6 +115,12 @@ export default function App() {
               <SpeechBubble>Chọn 1 bài hội thoại để nghe cả bài rồi đọc theo từng câu nhé!</SpeechBubble>
             </div>
 
+            <div className="btn-row" style={{ justifyContent: "center", marginBottom: "1.4rem" }}>
+              <button type="button" className="btn btn-primary" onClick={handlePrintAllDialogues}>
+                📥 Tải xuống / In tất cả {dialogueTopics.length} bài hội thoại
+              </button>
+            </div>
+
             <div className="topic-grid">
               {dialogueTopics.map((dialogue) => (
                 <button
@@ -138,5 +150,7 @@ export default function App() {
         )}
       </main>
     </div>
+    <PrintableDialogues topics={dialogueTopics} />
+    </>
   );
 }

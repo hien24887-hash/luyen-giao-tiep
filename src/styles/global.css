@@ -776,3 +776,74 @@ input {
     font-size: 16px;
   }
 }
+
+/* ---------------------------------- IN / TẢI XUỐNG HỘI THOẠI ------------- */
+.print-sheet {
+  display: none;
+}
+
+@media print {
+  .app-shell {
+    display: none !important;
+  }
+
+  .print-sheet {
+    display: block !important;
+    color: #000;
+    font-family: "Times New Roman", Times, serif;
+  }
+
+  .print-sheet__title {
+    text-align: center;
+    margin-bottom: 0.2rem;
+  }
+
+  .print-sheet__subtitle {
+    text-align: center;
+    font-style: italic;
+    margin-bottom: 1.5rem;
+  }
+
+  .print-dialogue {
+    page-break-after: always;
+    margin-bottom: 1.5rem;
+  }
+
+  .print-dialogue:last-child {
+    page-break-after: auto;
+  }
+
+  .print-dialogue h2 {
+    border-bottom: 2px solid #000;
+    padding-bottom: 0.3rem;
+    margin-bottom: 0.8rem;
+  }
+
+  .print-dialogue__vi {
+    font-weight: 400;
+    font-style: italic;
+  }
+
+  .print-dialogue__lines {
+    padding-left: 1.4rem;
+  }
+
+  .print-dialogue__lines li {
+    margin-bottom: 0.9rem;
+    break-inside: avoid;
+  }
+
+  .print-line__speaker {
+    font-weight: 800;
+  }
+
+  .print-line__ipa {
+    color: #333;
+    font-style: italic;
+  }
+
+  .print-line__meaning {
+    color: #444;
+    font-style: italic;
+  }
+}
