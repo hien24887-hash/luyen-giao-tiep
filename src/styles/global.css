@@ -731,15 +731,36 @@ input {
   margin-bottom: 1rem;
 }
 
+.dialogue-turn__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
 .dialogue-turn__speaker {
   display: inline-block;
   font-weight: 800;
   font-size: 1rem;
-  margin-bottom: 0.6rem;
   padding: 0.2rem 0.8rem;
   border-radius: 999px;
   background: var(--neutral-bg);
   border: 2px solid currentColor;
+}
+
+.dialogue-turn__listen {
+  padding: 0.2rem 0.6rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.full-passage {
+  max-height: 65vh;
+  overflow-y: auto;
+  padding: 0.2rem 0.4rem 0.2rem 0.2rem;
+  margin-bottom: 1rem;
+  border-bottom: 2px dashed var(--border);
 }
 
 @media (max-width: 640px) {

@@ -25,27 +25,31 @@ function tokenizeLine(text: string): LineToken[] {
   });
 }
 
+// Hoàn thành 1 bài hội thoại (15 câu, đọc cả bài) được tính công tương đương
+// hoàn thành 1 chủ đề giao tiếp (10 mẫu câu) trong app.
 const STARS_PER_DIALOGUE = 8;
 
 export default function DialogueReader({ dialogue }: DialogueReaderProps) {
   const micSupported = useMemo(() => isSpeechRecognitionSupported(), []);
-  const [lineIdx, setLineIdx] = useState(0);
-  const [resultsByLine, setResultsByLine] = useState<(WordMatchResult[] | null)[]>(() =>
-    dialogue.lines.map(() => null)
-  );
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
+  const [results, setResults] = useState<WordMatchResult[] | null>(null);
   const [finished, setFinished] = useState(false);
   const [rewardPopup, setRewardPopup] = useState<AwardResult | null>(null);
   const recognitionRef = useRef<RecognitionHandle | null>(null);
   const transcriptRef = useRef("");
   const finalizedRef = useRef(false);
-  const lineIdxRef = useRef(lineIdx);
-  lineIdxRef.current = lineIdx;
 
-  const currentLine = dialogue.lines[lineIdx];
-  const tokens = useMemo(() => tokenizeLine(currentLine.text), [currentLine.text]);
-  const currentResults = resultsByLine[lineIdx];
+  const lineTokens = useMemo(() => dialogue.lines.map((l) => tokenizeLine(l.text)), [dialogue]);
+  const flatWords = useMemo(() => lineTokens.flatMap((tokens) => tokens.map((t) => t.text)), [lineTokens]);
+  const lineOffsets = useMemo(() => {
+    let offset = 0;
+    return lineTokens.map((tokens) => {
+      const start = offset;
+      offset += tokens.length;
+      return start;
+    });
+  }, [lineTokens]);
 
   useEffect(() => {
     return () => {
@@ -53,23 +57,18 @@ export default function DialogueReader({ dialogue }: DialogueReaderProps) {
     };
   }, []);
 
-  function statusFor(idx: number): ChipStatus {
-    const found = currentResults?.find((r) => r.index === idx);
+  function statusFor(lineIdx: number, wordIdx: number): ChipStatus {
+    if (!results) return "neutral";
+    const flatIndex = lineOffsets[lineIdx] + wordIdx;
+    const found = results.find((r) => r.index === flatIndex);
     return found ? found.status : "neutral";
   }
 
-  function finalizeLine(transcript: string) {
+  function finalizeReading(transcript: string) {
     if (finalizedRef.current) return;
     finalizedRef.current = true;
-    const targetIdx = lineIdxRef.current;
-    const expectedWords = tokenizeLine(dialogue.lines[targetIdx].text).map((t) => t.text);
     const heardWords = transcript.split(/\s+/).filter(Boolean);
-    const results = alignTranscript(expectedWords, heardWords);
-    setResultsByLine((prev) => {
-      const next = [...prev];
-      next[targetIdx] = results;
-      return next;
-    });
+    setResults(alignTranscript(flatWords, heardWords));
   }
 
   function beginRecording() {
@@ -87,11 +86,11 @@ export default function DialogueReader({ dialogue }: DialogueReaderProps) {
       },
       onEnd: () => {
         setIsRecording(false);
-        finalizeLine(transcriptRef.current);
+        finalizeReading(transcriptRef.current);
       },
       onError: () => {
         setIsRecording(false);
-        finalizeLine(transcriptRef.current);
+        finalizeReading(transcriptRef.current);
       },
     });
   }
@@ -104,13 +103,9 @@ export default function DialogueReader({ dialogue }: DialogueReaderProps) {
     beginRecording();
   }
 
-  function handleRetryLine() {
+  function handleRetry() {
     recognitionRef.current?.stop();
-    setResultsByLine((prev) => {
-      const next = [...prev];
-      next[lineIdx] = null;
-      return next;
-    });
+    setResults(null);
     setLiveTranscript("");
   }
 
@@ -119,29 +114,20 @@ export default function DialogueReader({ dialogue }: DialogueReaderProps) {
     speak(token.text);
   }
 
-  function handleListenLine() {
+  function handleListenLine(text: string) {
     if (isRecording) return;
-    speak(currentLine.text);
+    speak(text);
   }
 
-  function handleListenWhole() {
+  function handleListenAll() {
     if (isRecording) return;
     speak(dialogue.lines.map((l) => l.text).join(". "));
   }
 
-  function handleAdvance() {
-    recognitionRef.current?.stop();
-    if (lineIdx < dialogue.lines.length - 1) {
-      setLineIdx((i) => i + 1);
-      setLiveTranscript("");
-      return;
-    }
-    const totalWords = dialogue.lines.reduce((sum, l) => sum + tokenizeLine(l.text).length, 0);
-    const correctWords = resultsByLine.reduce(
-      (sum, results) => sum + (results?.filter((r) => r.status === "correct").length ?? 0),
-      0
-    );
-    recordTopicScore(`dialogue-${dialogue.id}`, correctWords, totalWords);
+  function handleFinish() {
+    if (!results) return;
+    const correctWords = results.filter((r) => r.status === "correct").length;
+    recordTopicScore(`dialogue-${dialogue.id}`, correctWords, flatWords.length);
     const result = awardStars(STARS_PER_DIALOGUE);
     if (result.newTrophies > 0 || result.newMoneyVnd > 0) setRewardPopup(result);
     setFinished(true);
@@ -149,18 +135,13 @@ export default function DialogueReader({ dialogue }: DialogueReaderProps) {
 
   function handleRestart() {
     recognitionRef.current?.stop();
-    setLineIdx(0);
-    setResultsByLine(dialogue.lines.map(() => null));
+    setResults(null);
     setLiveTranscript("");
     setFinished(false);
   }
 
-  if (finished) {
-    const totalWords = dialogue.lines.reduce((sum, l) => sum + tokenizeLine(l.text).length, 0);
-    const correctWords = resultsByLine.reduce(
-      (sum, results) => sum + (results?.filter((r) => r.status === "correct").length ?? 0),
-      0
-    );
+  if (finished && results) {
+    const correctWords = results.filter((r) => r.status === "correct").length;
     return (
       <div className="story-reader">
         <div className="mascot-row">
@@ -168,7 +149,7 @@ export default function DialogueReader({ dialogue }: DialogueReaderProps) {
         </div>
         <h3>🎉 Hoàn thành hội thoại "{dialogue.title}"!</h3>
         <p className="final-score">
-          Đọc đúng {correctWords}/{totalWords} từ — <span className="star-gain">+{STARS_PER_DIALOGUE} ⭐</span>
+          Đọc đúng {correctWords}/{flatWords.length} từ — <span className="star-gain">+{STARS_PER_DIALOGUE} ⭐</span>
         </p>
         <div className="btn-row" style={{ justifyContent: "center" }}>
           <button type="button" className="btn btn-primary" onClick={handleRestart}>
@@ -186,39 +167,50 @@ export default function DialogueReader({ dialogue }: DialogueReaderProps) {
     );
   }
 
-  const incorrectTokens: { token: LineToken; index: number }[] = currentResults
-    ? currentResults.filter((r) => r.status === "incorrect").map((r) => ({ token: tokens[r.index], index: r.index }))
+  const incorrectTokens: { token: LineToken; flatIndex: number }[] = results
+    ? results
+        .filter((r) => r.status === "incorrect")
+        .map((r) => ({ token: lineTokens.flat()[r.index], flatIndex: r.index }))
     : [];
-  const correctCount = currentResults ? currentResults.length - incorrectTokens.length : 0;
+  const correctCount = results ? results.length - incorrectTokens.length : 0;
 
   return (
     <div className="story-reader" style={{ "--rule-color": dialogue.color } as React.CSSProperties}>
-      <div className="btn-row" style={{ justifyContent: "center", marginBottom: "1rem" }}>
-        <button type="button" className="btn btn-ghost" onClick={handleListenWhole} disabled={isRecording}>
-          🔊 Nghe cả bài hội thoại
-        </button>
-      </div>
-
       <p className="score-line">
-        Câu {lineIdx + 1}/{dialogue.lines.length}
+        Cả bài — {dialogue.lines.length} câu, {flatWords.length} từ
       </p>
 
-      <div className="dialogue-turn">
-        <span className="dialogue-turn__speaker" style={{ color: dialogue.color }}>
-          {currentLine.speaker}
-        </span>
-        <div className="sentence-row">
-          {tokens.map((token, idx) => (
-            <WordChip
-              key={idx}
-              text={token.text + (token.punct ?? "")}
-              status={statusFor(idx)}
-              onClick={() => handleWordClick(token)}
-            />
-          ))}
-        </div>
-        <p className="dialogue-line__ipa">{currentLine.ipa}</p>
-        <p className="dialogue-line__meaning">{currentLine.meaning}</p>
+      <div className="full-passage">
+        {dialogue.lines.map((line, lineIdx) => (
+          <div className="dialogue-turn" key={lineIdx}>
+            <div className="dialogue-turn__header">
+              <span className="dialogue-turn__speaker" style={{ color: dialogue.color }}>
+                {line.speaker}
+              </span>
+              <button
+                type="button"
+                className="btn btn-ghost dialogue-turn__listen"
+                onClick={() => handleListenLine(line.text)}
+                disabled={isRecording}
+                title="Nghe câu này"
+              >
+                🔊
+              </button>
+            </div>
+            <div className="sentence-row">
+              {lineTokens[lineIdx].map((token, wordIdx) => (
+                <WordChip
+                  key={wordIdx}
+                  text={token.text + (token.punct ?? "")}
+                  status={statusFor(lineIdx, wordIdx)}
+                  onClick={() => handleWordClick(token)}
+                />
+              ))}
+            </div>
+            <p className="dialogue-line__ipa">{line.ipa}</p>
+            <p className="dialogue-line__meaning">{line.meaning}</p>
+          </div>
+        ))}
       </div>
 
       {!micSupported && (
@@ -230,45 +222,40 @@ export default function DialogueReader({ dialogue }: DialogueReaderProps) {
 
       {isRecording && (
         <p className="unsupported-note">
-          🎙 Đang nghe, con cứ đọc từ từ... {liveTranscript}
+          🎙 Đang nghe, con cứ đọc từ từ hết cả bài... {liveTranscript}
           <br />
           Đọc xong thì bấm "Dừng đọc".
         </p>
       )}
 
       <div className="btn-row" style={{ marginTop: "1rem" }}>
-        <button type="button" className="btn btn-ghost" onClick={handleListenLine} disabled={isRecording}>
-          🔊 Nghe câu này
+        <button type="button" className="btn btn-ghost" onClick={handleListenAll} disabled={isRecording}>
+          🔊 Nghe cả bài hội thoại
         </button>
         <MicButton recording={isRecording} supported={micSupported} onClick={handleToggleRecording} />
-        {currentResults && (
-          <button type="button" className="btn btn-ghost" onClick={handleRetryLine} disabled={isRecording}>
-            🔁 Đọc lại câu này
+        {results && (
+          <button type="button" className="btn btn-ghost" onClick={handleRetry} disabled={isRecording}>
+            🔁 Đọc lại từ đầu
           </button>
         )}
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={handleAdvance}
-          disabled={!currentResults || isRecording}
-        >
-          {lineIdx < dialogue.lines.length - 1 ? "Câu tiếp theo →" : "Xem kết quả 🏁"}
+        <button type="button" className="btn btn-primary" onClick={handleFinish} disabled={!results || isRecording}>
+          Hoàn thành 🏁
         </button>
       </div>
 
-      {currentResults && (
+      {results && (
         <>
           <p className="score-line">
-            Câu này: {correctCount}/{currentResults.length} từ đúng
+            Kết quả: {correctCount}/{results.length} từ đúng
           </p>
           {incorrectTokens.length === 0 ? (
-            <div className="feedback-banner correct">🎉 Con đọc đúng hết cả câu này rồi!</div>
+            <div className="feedback-banner correct">🎉 Con đọc đúng hết cả bài rồi!</div>
           ) : (
             <div className="error-tip-panel">
               <h4>📌 Sửa lỗi đọc — các từ cần luyện lại</h4>
               <ul className="error-tip-list">
-                {incorrectTokens.map(({ token, index }) => (
-                  <li key={index}>
+                {incorrectTokens.map(({ token, flatIndex }) => (
+                  <li key={flatIndex}>
                     <button
                       type="button"
                       className="chip chip-error"
