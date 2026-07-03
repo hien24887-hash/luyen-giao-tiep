@@ -180,7 +180,7 @@ export default function DialogueReader({ dialogue }: DialogueReaderProps) {
         Cả bài — {dialogue.lines.length} câu, {flatWords.length} từ
       </p>
 
-      <div className="full-passage">
+      <div className="dialogue-passage">
         {dialogue.lines.map((line, lineIdx) => (
           <div className="dialogue-turn" key={lineIdx}>
             <div className="dialogue-turn__header">

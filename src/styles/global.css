@@ -763,6 +763,14 @@ input {
   border-bottom: 2px dashed var(--border);
 }
 
+/* Hội thoại: hiện trọn cả bài theo chiều dài trang, không cuộn trong 1 khung
+   nhỏ — cuộn cả trang là thấy hết. */
+.dialogue-passage {
+  padding: 0.2rem 0.4rem 0.2rem 0.2rem;
+  margin-bottom: 1rem;
+  border-bottom: 2px dashed var(--border);
+}
+
 @media (max-width: 640px) {
   body {
     font-size: 16px;
