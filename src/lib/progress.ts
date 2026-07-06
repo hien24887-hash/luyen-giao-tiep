@@ -19,6 +19,13 @@ const STARS_PER_TROPHY = 10;
 const TROPHIES_PER_REWARD = 50;
 const MONEY_PER_REWARD_VND = 50000;
 
+// Dùng thử miễn phí 4 ngày kể từ lúc tạo tài khoản, sau đó phải thanh toán 1
+// lần để dùng trọn đời. Tài khoản trùng email này có quyền duyệt thanh toán
+// cho MỌI học viên (xem thêm ở Firestore Rules — chỉ email này mới được phép
+// ghi đè trường "paid" của người khác).
+export const ADMIN_EMAIL = "hien24887@gmail.com";
+export const TRIAL_DAYS = 4;
+
 export interface Student {
   id: string;
   name: string;
@@ -37,6 +44,7 @@ interface StudentDoc {
   createdAt: string;
   topicScores: Record<string, TopicScore>;
   totalStars: number;
+  paid: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +98,30 @@ export function getCurrentStudent(): Student | null {
   return { id: currentUser.uid, name: cache.name, createdAt: cache.createdAt };
 }
 
+/** true nếu tài khoản đang đăng nhập là tài khoản phụ huynh có quyền duyệt thanh toán. */
+export function isAdmin(): boolean {
+  return currentUser?.email === ADMIN_EMAIL;
+}
+
+export interface AccessStatus {
+  paid: boolean;
+  daysLeft: number;
+  trialExpired: boolean;
+}
+
+function computeAccessStatus(createdAt: string, paid: boolean): AccessStatus {
+  const elapsedMs = Date.now() - new Date(createdAt).getTime();
+  const elapsedDays = elapsedMs / (24 * 60 * 60 * 1000);
+  const daysLeft = Math.max(0, Math.ceil(TRIAL_DAYS - elapsedDays));
+  return { paid, daysLeft, trialExpired: !paid && daysLeft <= 0 };
+}
+
+/** Trạng thái dùng thử/đã thanh toán của học viên đang đăng nhập. */
+export function getAccessStatus(): AccessStatus | null {
+  if (!currentUser || !cache) return null;
+  return computeAccessStatus(cache.createdAt, cache.paid ?? false);
+}
+
 // ---------------------------------------------------------------------------
 // Đăng ký / đăng nhập / đăng xuất
 // ---------------------------------------------------------------------------
@@ -104,6 +136,7 @@ export async function signUp(name: string, email: string, password: string): Pro
     createdAt: new Date().toISOString(),
     topicScores: {},
     totalStars: 0,
+    paid: false,
   };
   await setDoc(doc(db, "students", cred.user.uid), initialDoc);
   // Cập nhật cache ngay để UI không phải đợi onSnapshot phản hồi từ server.
@@ -217,6 +250,7 @@ export interface StudentSummary extends RewardTotals {
   topicsCompleted: number;
   dialoguesCompleted: number;
   lastActive: string | null;
+  access: AccessStatus;
 }
 
 export async function fetchAllStudentSummaries(): Promise<StudentSummary[]> {
@@ -239,6 +273,12 @@ export async function fetchAllStudentSummaries(): Promise<StudentSummary[]> {
       topicsCompleted,
       dialoguesCompleted,
       lastActive,
+      access: computeAccessStatus(data.createdAt, data.paid ?? false),
     };
   });
+}
+
+/** Chỉ tài khoản ADMIN_EMAIL mới ghi được (Firestore Rules chặn người khác). */
+export async function markStudentPaid(studentId: string): Promise<void> {
+  await updateDoc(doc(db, "students", studentId), { paid: true });
 }

@@ -11,12 +11,18 @@ import TopicPractice from "./components/communicate/TopicPractice";
 import DialogueReader from "./components/dialogues/DialogueReader";
 import StudentGate from "./components/students/StudentGate";
 import StudentDashboard from "./components/students/StudentDashboard";
+import Paywall from "./components/students/Paywall";
 
 type Section = "patterns" | "dialogues";
 type View = "practice" | "dashboard";
 
 export default function App() {
-  const { student: currentStudent, loading: authLoading } = useCurrentStudent();
+  const {
+    student: currentStudent,
+    access,
+    isAdmin: currentIsAdmin,
+    loading: authLoading,
+  } = useCurrentStudent();
   const [view, setView] = useState<View>("practice");
   const [section, setSection] = useState<Section>("patterns");
   const [selectedTopic, setSelectedTopic] = useState<CommTopic | null>(null);
@@ -39,6 +45,15 @@ export default function App() {
   if (!currentStudent) {
     return <StudentGate />;
   }
+
+  if (access?.trialExpired && !currentIsAdmin) {
+    return <Paywall studentId={currentStudent.id} studentName={currentStudent.name} />;
+  }
+
+  const trialBadge =
+    access && !access.paid && !currentIsAdmin ? (
+      <span className="reward-badge__trial">⏳ Còn {access.daysLeft} ngày dùng thử</span>
+    ) : null;
 
   const greeting =
     rewards.totalStars === 0
@@ -87,6 +102,7 @@ export default function App() {
             <span>⭐ {rewards.totalStars}</span>
             <span>🏆 {rewards.totalTrophies}</span>
           </div>
+          {trialBadge}
           <button type="button" className="btn btn-ghost btn-small" onClick={() => setView("dashboard")}>
             📊 Theo dõi
           </button>

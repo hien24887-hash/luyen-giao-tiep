@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchAllStudentSummaries, type StudentSummary } from "../../lib/progress";
+import { fetchAllStudentSummaries, isAdmin, markStudentPaid, type StudentSummary } from "../../lib/progress";
 import { communicationTopics } from "../../data/communication";
 import { dialogueTopics } from "../../data/dialogues";
 
@@ -12,23 +12,39 @@ function formatLastActive(iso: string | null): string {
   return new Date(iso).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+function accessLabel(access: StudentSummary["access"]): string {
+  if (access.paid) return "✅ Đã thanh toán";
+  if (access.trialExpired) return "🔒 Hết hạn dùng thử";
+  return `⏳ Còn ${access.daysLeft} ngày`;
+}
+
 export default function StudentDashboard({ onClose }: StudentDashboardProps) {
   const [summaries, setSummaries] = useState<StudentSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [unlockingId, setUnlockingId] = useState<string | null>(null);
+  const admin = isAdmin();
+
+  function loadSummaries() {
+    fetchAllStudentSummaries()
+      .then((result) => setSummaries(result))
+      .catch(() => setError("Không tải được dữ liệu học viên, vui lòng thử lại."));
+  }
 
   useEffect(() => {
-    let cancelled = false;
-    fetchAllStudentSummaries()
-      .then((result) => {
-        if (!cancelled) setSummaries(result);
-      })
-      .catch(() => {
-        if (!cancelled) setError("Không tải được dữ liệu học viên, vui lòng thử lại.");
-      });
-    return () => {
-      cancelled = true;
-    };
+    loadSummaries();
   }, []);
+
+  async function handleUnlock(studentId: string) {
+    setUnlockingId(studentId);
+    try {
+      await markStudentPaid(studentId);
+      loadSummaries();
+    } catch {
+      setError("Không mở khóa được, vui lòng thử lại.");
+    } finally {
+      setUnlockingId(null);
+    }
+  }
 
   return (
     <div>
@@ -58,11 +74,12 @@ export default function StudentDashboard({ onClose }: StudentDashboardProps) {
                 <th>🗂️ Chủ đề</th>
                 <th>💭 Hội thoại</th>
                 <th>Học gần nhất</th>
+                {admin && <th>Trạng thái</th>}
               </tr>
             </thead>
             <tbody>
               {summaries.map(
-                ({ student, totalStars, totalTrophies, totalMoneyVnd, topicsCompleted, dialoguesCompleted, lastActive }) => (
+                ({ student, totalStars, totalTrophies, totalMoneyVnd, topicsCompleted, dialoguesCompleted, lastActive, access }) => (
                   <tr key={student.id}>
                     <td className="student-table__name">{student.name}</td>
                     <td>{totalStars}</td>
@@ -75,6 +92,23 @@ export default function StudentDashboard({ onClose }: StudentDashboardProps) {
                       {dialoguesCompleted}/{dialogueTopics.length}
                     </td>
                     <td>{formatLastActive(lastActive)}</td>
+                    {admin && (
+                      <td>
+                        <div className="student-table__access">
+                          <span>{accessLabel(access)}</span>
+                          {!access.paid && (
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-small"
+                              disabled={unlockingId === student.id}
+                              onClick={() => handleUnlock(student.id)}
+                            >
+                              {unlockingId === student.id ? "Đang mở..." : "Xác nhận đã thanh toán"}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 )
               )}
