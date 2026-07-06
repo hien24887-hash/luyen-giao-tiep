@@ -6,6 +6,7 @@ const BANK_ID = "970423"; // TPBank
 const ACCOUNT_NO = "06784973301";
 const ACCOUNT_NAME = "TRAN THI HIEN";
 const AMOUNT_VND = 200000;
+const ZALO_CONTACT = "0329225486";
 
 interface PaywallProps {
   studentId: string;
@@ -55,7 +56,9 @@ export default function Paywall({ studentId, studentName }: PaywallProps) {
               <strong>Nội dung chuyển khoản:</strong> <span className="paywall-card__code">{addInfo}</span>
             </p>
             <p className="paywall-card__note">
-              Sau khi chuyển khoản, phụ huynh vui lòng đợi ít giờ để tài khoản được xác nhận và mở khóa trọn đời.
+              Sau khi chuyển khoản xong, bạn add Zalo{" "}
+              <span className="paywall-card__code">{ZALO_CONTACT}</span> để được kích hoạt, và vào nhóm cập nhật
+              thêm tài liệu.
             </p>
           </div>
         </div>
