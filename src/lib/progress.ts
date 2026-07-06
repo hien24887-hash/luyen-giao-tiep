@@ -1,12 +1,18 @@
-// Lưu hồ sơ học viên + tiến trình luyện tập của từng học viên vào
-// localStorage (không cần backend). Mỗi học viên có điểm sao/cúp/tiến độ
-// hoàn toàn riêng, để phụ huynh có thể theo dõi từng bé học đến đâu.
+// Tài khoản học viên (đăng nhập email/mật khẩu qua Firebase Authentication) +
+// tiến trình luyện tập lưu trên Firestore, để mỗi bé có 1 tài khoản riêng và
+// có thể đăng nhập từ bất kỳ máy/điện thoại nào cũng thấy đúng tiến độ của
+// mình (khác với bản trước chỉ lưu trong localStorage của 1 trình duyệt).
 
-const STUDENTS_KEY = "giao-tiep-app-students-v1";
-const PROGRESS_KEY = "giao-tiep-app-progress-v2";
-// Key cũ từ trước khi app có khái niệm "học viên" — dữ liệu ở đây được gộp
-// vào học viên đầu tiên được tạo, để không mất tiến độ đã có.
-const LEGACY_PROGRESS_KEY = "giao-tiep-app-progress-v1";
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+  type User,
+} from "firebase/auth";
+import { collection, doc, getDocs, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
+import { auth, db } from "./firebase";
 
 // Quy đổi thưởng: 10 ngôi sao -> 1 cúp, 50 cúp -> 50.000đ tiền thưởng.
 const STARS_PER_TROPHY = 10;
@@ -19,95 +25,30 @@ export interface Student {
   createdAt: string;
 }
 
-interface StudentsState {
-  students: Student[];
-  currentStudentId: string | null;
-}
-
 interface TopicScore {
   correct: number;
   total: number;
   playedAt: string;
 }
 
-interface ProgressState {
+interface StudentDoc {
+  name: string;
+  email: string;
+  createdAt: string;
   topicScores: Record<string, TopicScore>;
   totalStars: number;
 }
 
-type AllProgress = Record<string, ProgressState>;
-
 // ---------------------------------------------------------------------------
-// Lưu trữ cấp thấp
+// Trạng thái đăng nhập hiện tại — được Firebase đồng bộ bất đồng bộ, cache lại
+// ở đây để các hàm cộng sao/ghi điểm vẫn có thể trả về kết quả NGAY LẬP TỨC
+// (đồng bộ) cho UI, thay vì phải đợi round-trip mạng mỗi lần bé trả lời đúng.
 // ---------------------------------------------------------------------------
+let currentUser: User | null = null;
+let cache: StudentDoc | null = null;
+let authResolved = false;
+let unsubscribeDoc: (() => void) | null = null;
 
-function loadStudentsState(): StudentsState {
-  if (typeof window === "undefined") return { students: [], currentStudentId: null };
-  try {
-    const raw = window.localStorage.getItem(STUDENTS_KEY);
-    if (!raw) return { students: [], currentStudentId: null };
-    const parsed = JSON.parse(raw) as Partial<StudentsState>;
-    return { students: parsed.students ?? [], currentStudentId: parsed.currentStudentId ?? null };
-  } catch {
-    return { students: [], currentStudentId: null };
-  }
-}
-
-function saveStudentsState(state: StudentsState): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(STUDENTS_KEY, JSON.stringify(state));
-}
-
-function loadAllProgress(): AllProgress {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(PROGRESS_KEY);
-    return raw ? (JSON.parse(raw) as AllProgress) : {};
-  } catch {
-    return {};
-  }
-}
-
-function saveAllProgress(all: AllProgress): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(PROGRESS_KEY, JSON.stringify(all));
-}
-
-function loadProgressFor(studentId: string): ProgressState {
-  const all = loadAllProgress();
-  return all[studentId] ?? { topicScores: {}, totalStars: 0 };
-}
-
-function saveProgressFor(studentId: string, state: ProgressState): void {
-  const all = loadAllProgress();
-  all[studentId] = state;
-  saveAllProgress(all);
-}
-
-// Học viên đầu tiên được tạo thừa hưởng tiến độ đã luyện trước khi app có
-// khái niệm hồ sơ học viên (nếu có), thay vì để tiến độ đó biến mất.
-function migrateLegacyProgressIfNeeded(studentId: string): void {
-  if (typeof window === "undefined") return;
-  const legacyRaw = window.localStorage.getItem(LEGACY_PROGRESS_KEY);
-  if (!legacyRaw) return;
-  try {
-    const legacy = JSON.parse(legacyRaw) as Partial<ProgressState>;
-    if ((legacy.totalStars ?? 0) > 0 || Object.keys(legacy.topicScores ?? {}).length > 0) {
-      saveProgressFor(studentId, {
-        topicScores: legacy.topicScores ?? {},
-        totalStars: legacy.totalStars ?? 0,
-      });
-    }
-  } catch {
-    // Dữ liệu cũ hỏng — bỏ qua, không chặn việc tạo học viên mới.
-  } finally {
-    window.localStorage.removeItem(LEGACY_PROGRESS_KEY);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Người nghe thay đổi (huy hiệu thưởng, tên học viên ở header tự cập nhật)
-// ---------------------------------------------------------------------------
 type Listener = () => void;
 const listeners = new Set<Listener>();
 function notify(): void {
@@ -118,86 +59,90 @@ export function subscribeRewards(cb: Listener): () => void {
   return () => listeners.delete(cb);
 }
 
-// ---------------------------------------------------------------------------
-// Quản lý hồ sơ học viên
-// ---------------------------------------------------------------------------
-
-function genId(): string {
-  return `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+if (typeof window !== "undefined") {
+  onAuthStateChanged(auth, (user) => {
+    currentUser = user;
+    authResolved = true;
+    if (unsubscribeDoc) {
+      unsubscribeDoc();
+      unsubscribeDoc = null;
+    }
+    if (user) {
+      unsubscribeDoc = onSnapshot(doc(db, "students", user.uid), (snap) => {
+        cache = snap.exists() ? (snap.data() as StudentDoc) : null;
+        notify();
+      });
+    } else {
+      cache = null;
+      notify();
+    }
+    notify();
+  });
 }
 
-export function getStudents(): Student[] {
-  return loadStudentsState().students;
-}
-
-export function getCurrentStudentId(): string | null {
-  return loadStudentsState().currentStudentId;
+/** true khi Firebase đã xác định xong có phiên đăng nhập cũ hay không. */
+export function isAuthResolved(): boolean {
+  return authResolved;
 }
 
 export function getCurrentStudent(): Student | null {
-  const state = loadStudentsState();
-  return state.students.find((s) => s.id === state.currentStudentId) ?? null;
-}
-
-/** Tạo hồ sơ học viên mới và chọn làm học viên đang học. */
-export function createStudent(name: string): Student {
-  const trimmed = name.trim();
-  const state = loadStudentsState();
-  const student: Student = { id: genId(), name: trimmed || "Học viên", createdAt: new Date().toISOString() };
-  const isFirstStudent = state.students.length === 0;
-  state.students.push(student);
-  state.currentStudentId = student.id;
-  saveStudentsState(state);
-  if (isFirstStudent) migrateLegacyProgressIfNeeded(student.id);
-  notify();
-  return student;
-}
-
-export function selectStudent(id: string): void {
-  const state = loadStudentsState();
-  if (!state.students.some((s) => s.id === id)) return;
-  state.currentStudentId = id;
-  saveStudentsState(state);
-  notify();
-}
-
-/** Rời khỏi hồ sơ hiện tại, quay về màn hình chọn học viên. */
-export function exitToStudentGate(): void {
-  const state = loadStudentsState();
-  state.currentStudentId = null;
-  saveStudentsState(state);
-  notify();
-}
-
-export function renameStudent(id: string, name: string): void {
-  const trimmed = name.trim();
-  if (!trimmed) return;
-  const state = loadStudentsState();
-  const student = state.students.find((s) => s.id === id);
-  if (!student) return;
-  student.name = trimmed;
-  saveStudentsState(state);
-  notify();
-}
-
-/** Xóa hồ sơ học viên và toàn bộ tiến độ luyện tập của học viên đó. */
-export function deleteStudent(id: string): void {
-  const state = loadStudentsState();
-  state.students = state.students.filter((s) => s.id !== id);
-  if (state.currentStudentId === id) {
-    state.currentStudentId = null;
-  }
-  saveStudentsState(state);
-
-  const all = loadAllProgress();
-  delete all[id];
-  saveAllProgress(all);
-
-  notify();
+  if (!currentUser || !cache) return null;
+  return { id: currentUser.uid, name: cache.name, createdAt: cache.createdAt };
 }
 
 // ---------------------------------------------------------------------------
-// Điểm thưởng / tiến độ của học viên đang học
+// Đăng ký / đăng nhập / đăng xuất
+// ---------------------------------------------------------------------------
+
+export async function signUp(name: string, email: string, password: string): Promise<void> {
+  const trimmedName = name.trim() || "Học viên";
+  const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+  await updateProfile(cred.user, { displayName: trimmedName });
+  const initialDoc: StudentDoc = {
+    name: trimmedName,
+    email: email.trim(),
+    createdAt: new Date().toISOString(),
+    topicScores: {},
+    totalStars: 0,
+  };
+  await setDoc(doc(db, "students", cred.user.uid), initialDoc);
+  // Cập nhật cache ngay để UI không phải đợi onSnapshot phản hồi từ server.
+  currentUser = cred.user;
+  cache = initialDoc;
+  notify();
+}
+
+export async function logIn(email: string, password: string): Promise<void> {
+  await signInWithEmailAndPassword(auth, email.trim(), password);
+}
+
+export async function logOut(): Promise<void> {
+  await signOut(auth);
+}
+
+/** Chuyển mã lỗi Firebase thành thông báo tiếng Việt dễ hiểu cho phụ huynh/bé. */
+export function translateAuthError(err: unknown): string {
+  const code = (err as { code?: string } | null)?.code ?? "";
+  switch (code) {
+    case "auth/email-already-in-use":
+      return "Email này đã được đăng ký rồi — hãy chọn “Đăng nhập” thay vì tạo tài khoản mới.";
+    case "auth/invalid-email":
+      return "Email không hợp lệ, vui lòng kiểm tra lại.";
+    case "auth/weak-password":
+      return "Mật khẩu quá ngắn — cần ít nhất 6 ký tự.";
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+    case "auth/invalid-credential":
+      return "Email hoặc mật khẩu không đúng.";
+    case "auth/too-many-requests":
+      return "Bạn đã thử sai quá nhiều lần — vui lòng đợi một chút rồi thử lại.";
+    default:
+      return "Có lỗi xảy ra, vui lòng thử lại.";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Điểm thưởng / tiến độ của học viên đang đăng nhập
 // ---------------------------------------------------------------------------
 
 export interface RewardTotals {
@@ -221,39 +166,37 @@ function moneyFor(trophies: number): number {
 }
 
 export function getRewards(): RewardTotals {
-  const studentId = getCurrentStudentId();
-  const stars = studentId ? loadProgressFor(studentId).totalStars : 0;
+  const stars = cache?.totalStars ?? 0;
   const trophies = trophiesFor(stars);
   return { totalStars: stars, totalTrophies: trophies, totalMoneyVnd: moneyFor(trophies) };
 }
 
 export function recordTopicScore(topicId: string, correct: number, total: number): void {
-  const studentId = getCurrentStudentId();
-  if (!studentId) return;
-  const state = loadProgressFor(studentId);
-  state.topicScores[topicId] = { correct, total, playedAt: new Date().toISOString() };
-  saveProgressFor(studentId, state);
+  if (!currentUser || !cache) return;
+  cache.topicScores[topicId] = { correct, total, playedAt: new Date().toISOString() };
+  updateDoc(doc(db, "students", currentUser.uid), { topicScores: cache.topicScores }).catch(() => {
+    // Lỗi mạng tạm thời — dữ liệu vẫn đúng ở cache cục bộ, onSnapshot lần sau sẽ tự đồng bộ lại.
+  });
+  notify();
 }
 
-/** Cộng thêm sao cho học viên đang học khi hoàn thành 1 chủ đề/hội thoại. */
+/** Cộng thêm sao cho học viên đang đăng nhập khi hoàn thành 1 chủ đề/hội thoại. */
 export function awardStars(amount: number): AwardResult {
-  const studentId = getCurrentStudentId();
-  if (!studentId) {
+  if (!currentUser || !cache) {
     return { totalStars: 0, totalTrophies: 0, totalMoneyVnd: 0, newTrophies: 0, newMoneyVnd: 0 };
   }
 
-  const state = loadProgressFor(studentId);
-  const before = state.totalStars;
+  const before = cache.totalStars;
   const beforeTrophies = trophiesFor(before);
   const beforeMoney = moneyFor(beforeTrophies);
 
   const after = before + amount;
-  state.totalStars = after;
-  saveProgressFor(studentId, state);
+  cache.totalStars = after;
+  updateDoc(doc(db, "students", currentUser.uid), { totalStars: after }).catch(() => {});
+  notify();
 
   const afterTrophies = trophiesFor(after);
   const afterMoney = moneyFor(afterTrophies);
-  notify();
 
   return {
     totalStars: after,
@@ -265,7 +208,8 @@ export function awardStars(amount: number): AwardResult {
 }
 
 // ---------------------------------------------------------------------------
-// Theo dõi tổng hợp — dùng cho màn hình "Theo dõi học viên"
+// Theo dõi tổng hợp — dùng cho màn hình "Theo dõi học viên". Đọc trực tiếp từ
+// Firestore (không phải chỉ tài khoản đang đăng nhập) nên cần gọi bất đồng bộ.
 // ---------------------------------------------------------------------------
 
 export interface StudentSummary extends RewardTotals {
@@ -275,26 +219,26 @@ export interface StudentSummary extends RewardTotals {
   lastActive: string | null;
 }
 
-function summarize(studentId: string): Omit<StudentSummary, "student"> {
-  const state = loadProgressFor(studentId);
-  const trophies = trophiesFor(state.totalStars);
-  const entries = Object.entries(state.topicScores);
-  const topicsCompleted = entries.filter(([id]) => !id.startsWith("dialogue-")).length;
-  const dialoguesCompleted = entries.filter(([id]) => id.startsWith("dialogue-")).length;
-  const lastActive = entries.reduce<string | null>((latest, [, score]) => {
-    if (!latest || score.playedAt > latest) return score.playedAt;
-    return latest;
-  }, null);
-  return {
-    totalStars: state.totalStars,
-    totalTrophies: trophies,
-    totalMoneyVnd: moneyFor(trophies),
-    topicsCompleted,
-    dialoguesCompleted,
-    lastActive,
-  };
-}
-
-export function getAllStudentSummaries(): StudentSummary[] {
-  return getStudents().map((student) => ({ student, ...summarize(student.id) }));
+export async function fetchAllStudentSummaries(): Promise<StudentSummary[]> {
+  const snap = await getDocs(collection(db, "students"));
+  return snap.docs.map((docSnap) => {
+    const data = docSnap.data() as StudentDoc;
+    const trophies = trophiesFor(data.totalStars ?? 0);
+    const entries = Object.entries(data.topicScores ?? {});
+    const topicsCompleted = entries.filter(([id]) => !id.startsWith("dialogue-")).length;
+    const dialoguesCompleted = entries.filter(([id]) => id.startsWith("dialogue-")).length;
+    const lastActive = entries.reduce<string | null>((latest, [, score]) => {
+      if (!latest || score.playedAt > latest) return score.playedAt;
+      return latest;
+    }, null);
+    return {
+      student: { id: docSnap.id, name: data.name, createdAt: data.createdAt },
+      totalStars: data.totalStars ?? 0,
+      totalTrophies: trophies,
+      totalMoneyVnd: moneyFor(trophies),
+      topicsCompleted,
+      dialoguesCompleted,
+      lastActive,
+    };
+  });
 }

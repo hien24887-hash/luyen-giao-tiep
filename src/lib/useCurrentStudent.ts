@@ -1,12 +1,22 @@
 import { useEffect, useState } from "react";
-import { getCurrentStudent, subscribeRewards, type Student } from "./progress";
+import { getCurrentStudent, isAuthResolved, subscribeRewards, type Student } from "./progress";
 
-export function useCurrentStudent(): Student | null {
-  const [student, setStudent] = useState<Student | null>(() => getCurrentStudent());
+export interface CurrentStudentState {
+  student: Student | null;
+  /** true trong khoảnh khắc đầu tiên Firebase còn đang kiểm tra phiên đăng
+   * nhập cũ — tránh nhấp nháy màn hình đăng nhập cho người đã đăng nhập rồi. */
+  loading: boolean;
+}
+
+export function useCurrentStudent(): CurrentStudentState {
+  const [state, setState] = useState<CurrentStudentState>(() => ({
+    student: getCurrentStudent(),
+    loading: !isAuthResolved(),
+  }));
 
   useEffect(() => {
-    return subscribeRewards(() => setStudent(getCurrentStudent()));
+    return subscribeRewards(() => setState({ student: getCurrentStudent(), loading: !isAuthResolved() }));
   }, []);
 
-  return student;
+  return state;
 }

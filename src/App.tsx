@@ -3,7 +3,7 @@ import { communicationTopics, type CommTopic } from "./data/communication";
 import { dialogueTopics, type DialogueTopic } from "./data/dialogues";
 import { useRewards } from "./lib/useRewards";
 import { useCurrentStudent } from "./lib/useCurrentStudent";
-import { exitToStudentGate } from "./lib/progress";
+import { logOut } from "./lib/progress";
 import { buildAllDialoguesHtml, downloadHtmlFile } from "./lib/exportDialogue";
 import Mascot from "./components/mascot/Mascot";
 import SpeechBubble from "./components/mascot/SpeechBubble";
@@ -16,12 +16,25 @@ type Section = "patterns" | "dialogues";
 type View = "practice" | "dashboard";
 
 export default function App() {
-  const currentStudent = useCurrentStudent();
+  const { student: currentStudent, loading: authLoading } = useCurrentStudent();
   const [view, setView] = useState<View>("practice");
   const [section, setSection] = useState<Section>("patterns");
   const [selectedTopic, setSelectedTopic] = useState<CommTopic | null>(null);
   const [selectedDialogue, setSelectedDialogue] = useState<DialogueTopic | null>(null);
   const rewards = useRewards();
+
+  if (authLoading) {
+    return (
+      <div className="app-shell">
+        <nav className="navbar">
+          <span className="nav-brand">💬 Luyện Giao Tiếp Tiếng Anh</span>
+        </nav>
+        <main className="page-content">
+          <p style={{ textAlign: "center", marginTop: "3rem" }}>Đang tải...</p>
+        </main>
+      </div>
+    );
+  }
 
   if (!currentStudent) {
     return <StudentGate />;
@@ -77,8 +90,8 @@ export default function App() {
           <button type="button" className="btn btn-ghost btn-small" onClick={() => setView("dashboard")}>
             📊 Theo dõi
           </button>
-          <button type="button" className="btn btn-ghost btn-small" onClick={() => exitToStudentGate()}>
-            🔄 Đổi học viên
+          <button type="button" className="btn btn-ghost btn-small" onClick={() => logOut()}>
+            🚪 Đăng xuất
           </button>
         </div>
       </nav>

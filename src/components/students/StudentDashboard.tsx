@@ -1,4 +1,5 @@
-import { getAllStudentSummaries } from "../../lib/progress";
+import { useEffect, useState } from "react";
+import { fetchAllStudentSummaries, type StudentSummary } from "../../lib/progress";
 import { communicationTopics } from "../../data/communication";
 import { dialogueTopics } from "../../data/dialogues";
 
@@ -12,7 +13,22 @@ function formatLastActive(iso: string | null): string {
 }
 
 export default function StudentDashboard({ onClose }: StudentDashboardProps) {
-  const summaries = getAllStudentSummaries();
+  const [summaries, setSummaries] = useState<StudentSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAllStudentSummaries()
+      .then((result) => {
+        if (!cancelled) setSummaries(result);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Không tải được dữ liệu học viên, vui lòng thử lại.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div>
@@ -24,7 +40,11 @@ export default function StudentDashboard({ onClose }: StudentDashboardProps) {
 
       <h2 className="section-title">📊 Theo dõi học viên</h2>
 
-      {summaries.length === 0 ? (
+      {error ? (
+        <p>{error}</p>
+      ) : !summaries ? (
+        <p>Đang tải...</p>
+      ) : summaries.length === 0 ? (
         <p>Chưa có hồ sơ học viên nào.</p>
       ) : (
         <div style={{ overflowX: "auto" }}>
