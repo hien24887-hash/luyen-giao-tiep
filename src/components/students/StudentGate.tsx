@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { logIn, resetPassword, signUp, translateAuthError } from "../../lib/progress";
 import Mascot from "../mascot/Mascot";
+import NavBrand from "../layout/NavBrand";
 
 type Mode = "login" | "signup" | "forgot";
 
@@ -59,7 +60,7 @@ export default function StudentGate() {
   return (
     <div className="app-shell">
       <nav className="navbar">
-        <span className="nav-brand">💬 Luyện Giao Tiếp Tiếng Anh</span>
+        <NavBrand />
       </nav>
 
       <header className="page-banner">

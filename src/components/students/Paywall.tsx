@@ -1,4 +1,5 @@
 import { logOut, TRIAL_DAYS } from "../../lib/progress";
+import NavBrand from "../layout/NavBrand";
 
 // Thông tin chuyển khoản TPBank — dùng dịch vụ ảnh QR công khai của VietQR
 // (img.vietqr.io), không cần server riêng để tạo mã QR.
@@ -23,7 +24,7 @@ export default function Paywall({ studentId, studentName }: PaywallProps) {
   return (
     <div className="app-shell">
       <nav className="navbar">
-        <span className="nav-brand">💬 Luyện Giao Tiếp Tiếng Anh</span>
+        <NavBrand />
         <button type="button" className="btn btn-ghost btn-small" onClick={() => logOut()}>
           🚪 Đăng xuất
         </button>

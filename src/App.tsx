@@ -12,6 +12,7 @@ import DialogueReader from "./components/dialogues/DialogueReader";
 import StudentGate from "./components/students/StudentGate";
 import StudentDashboard from "./components/students/StudentDashboard";
 import Paywall from "./components/students/Paywall";
+import NavBrand from "./components/layout/NavBrand";
 
 type Section = "patterns" | "dialogues";
 type View = "practice" | "dashboard";
@@ -33,7 +34,7 @@ export default function App() {
     return (
       <div className="app-shell">
         <nav className="navbar">
-          <span className="nav-brand">💬 Luyện Giao Tiếp Tiếng Anh</span>
+          <NavBrand />
         </nav>
         <main className="page-content">
           <p style={{ textAlign: "center", marginTop: "3rem" }}>Đang tải...</p>
@@ -76,7 +77,7 @@ export default function App() {
     return (
       <div className="app-shell">
         <nav className="navbar">
-          <span className="nav-brand">💬 Luyện Giao Tiếp Tiếng Anh</span>
+          <NavBrand />
           <div className="reward-badge">
             <span>👤 {currentStudent.name}</span>
           </div>
@@ -95,7 +96,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <nav className="navbar">
-        <span className="nav-brand">💬 Luyện Giao Tiếp Tiếng Anh</span>
+        <NavBrand />
         <div className="navbar-actions">
           <div className="reward-badge">
             <span>👤 {currentStudent.name}</span>

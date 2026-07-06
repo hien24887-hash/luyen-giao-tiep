@@ -86,11 +86,24 @@ input {
   flex-wrap: wrap;
 }
 
+.nav-brand-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
 .nav-brand {
   font-weight: 800;
   font-size: 1.4rem;
   color: #fff8e7;
   letter-spacing: 0.3px;
+}
+
+.nav-contact {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #fff8e7;
+  opacity: 0.85;
 }
 
 /* ---------------------------------- PAGE SHELL --------------------------- */
