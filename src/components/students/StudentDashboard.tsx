@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchAllStudentSummaries, isAdmin, markStudentPaid, type StudentSummary } from "../../lib/progress";
+import { fetchAllStudentSummaries, fetchOwnSummary, isAdmin, markStudentPaid, type StudentSummary } from "../../lib/progress";
 import { communicationTopics } from "../../data/communication";
 import { dialogueTopics } from "../../data/dialogues";
 
@@ -25,7 +25,8 @@ export default function StudentDashboard({ onClose }: StudentDashboardProps) {
   const admin = isAdmin();
 
   function loadSummaries() {
-    fetchAllStudentSummaries()
+    const request = admin ? fetchAllStudentSummaries() : fetchOwnSummary().then((own) => (own ? [own] : []));
+    request
       .then((result) => setSummaries(result))
       .catch(() => setError("Không tải được dữ liệu học viên, vui lòng thử lại."));
   }
@@ -54,14 +55,14 @@ export default function StudentDashboard({ onClose }: StudentDashboardProps) {
         </button>
       </div>
 
-      <h2 className="section-title">📊 Theo dõi học viên</h2>
+      <h2 className="section-title">{admin ? "📊 Theo dõi học viên" : "📊 Tiến độ của tôi"}</h2>
 
       {error ? (
         <p>{error}</p>
       ) : !summaries ? (
         <p>Đang tải...</p>
       ) : summaries.length === 0 ? (
-        <p>Chưa có hồ sơ học viên nào.</p>
+        <p>Chưa có dữ liệu.</p>
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table className="student-table">

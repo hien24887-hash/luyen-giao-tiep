@@ -13,7 +13,16 @@ import {
   updateProfile,
   type User,
 } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocFromServer,
+  getDocs,
+  setDoc,
+  updateDoc,
+  waitForPendingWrites,
+} from "firebase/firestore";
 import { auth, db } from "./firebase";
 
 // Quy đổi thưởng: 10 ngôi sao -> 1 cúp, 50 cúp -> 50.000đ tiền thưởng.
@@ -57,7 +66,6 @@ interface StudentDoc {
 let currentUser: User | null = null;
 let cache: StudentDoc | null = null;
 let authResolved = false;
-let unsubscribeDoc: (() => void) | null = null;
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
@@ -73,15 +81,24 @@ if (typeof window !== "undefined") {
   onAuthStateChanged(auth, (user) => {
     currentUser = user;
     authResolved = true;
-    if (unsubscribeDoc) {
-      unsubscribeDoc();
-      unsubscribeDoc = null;
-    }
     if (user) {
-      unsubscribeDoc = onSnapshot(doc(db, "students", user.uid), (snap) => {
-        cache = snap.exists() ? (snap.data() as StudentDoc) : null;
-        notify();
-      });
+      // Đọc 1 lần (KHÔNG dùng onSnapshot real-time) — đã xác minh bằng thực
+      // nghiệm rằng giữ 1 listener real-time đang mở trên tài liệu vừa ghi rồi
+      // đăng xuất ngay sau đó khiến bản ghi đôi khi "biến mất" phía server dù
+      // ghi đã báo thành công (một vấn đề của Firestore Web SDK khi tắt listener
+      // giữa lúc còn việc ghi/đồng bộ dở dang). Đọc 1 lần mỗi khi đăng nhập/tạo
+      // tài khoản tránh hẳn tình huống này, đổi lại không tự cập nhật real-time
+      // nếu dữ liệu đổi ở thiết bị khác trong lúc đang mở app — chấp nhận được
+      // vì app chỉ cần đúng dữ liệu tại thời điểm đăng nhập.
+      getDoc(doc(db, "students", user.uid))
+        .then((snap) => {
+          cache = snap.exists() ? (snap.data() as StudentDoc) : null;
+          notify();
+        })
+        .catch(() => {
+          cache = null;
+          notify();
+        });
     } else {
       cache = null;
       notify();
@@ -141,8 +158,17 @@ export async function signUp(name: string, email: string, password: string): Pro
       totalStars: 0,
       paid: false,
     };
-    await setDoc(doc(db, "students", cred.user.uid), initialDoc);
-    // Cập nhật cache ngay để UI không phải đợi onSnapshot phản hồi từ server.
+    const ref = doc(db, "students", cred.user.uid);
+    await setDoc(ref, initialDoc);
+    // setDoc() có thể "thành công" ở phía client (ghi lạc quan vào hàng đợi cục
+    // bộ) trước khi dữ liệu thực sự tới được server — waitForPendingWrites()
+    // đợi đến khi server THẬT SỰ xác nhận, rồi đọc lại trực tiếp từ server để
+    // chắc chắn hồ sơ đã lưu trước khi báo đăng ký thành công.
+    await waitForPendingWrites(db);
+    const verifySnap = await getDocFromServer(ref);
+    if (!verifySnap.exists()) {
+      throw new Error("Profile write did not reach the server");
+    }
     currentUser = cred.user;
     cache = initialDoc;
     notify();
@@ -157,7 +183,7 @@ export async function signUp(name: string, email: string, password: string): Pro
 
 export async function logIn(email: string, password: string): Promise<void> {
   const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
-  const snap = await getDoc(doc(db, "students", cred.user.uid));
+  const snap = await getDocFromServer(doc(db, "students", cred.user.uid));
   if (!snap.exists()) {
     // Tài khoản có thể đăng nhập nhưng thiếu hồ sơ dữ liệu (ví dụ do lỗi mạng
     // lúc đăng ký trước đây) — báo rõ thay vì để màn hình lặp lại im lặng.
@@ -167,6 +193,11 @@ export async function logIn(email: string, password: string): Promise<void> {
 }
 
 export async function logOut(): Promise<void> {
+  // Đảm bảo mọi thay đổi (điểm số, hồ sơ mới tạo...) đã thực sự lưu lên server
+  // trước khi đăng xuất — đăng xuất tắt luôn listener đang theo dõi tài liệu,
+  // có thể khiến 1 lượt ghi vừa gửi đi (dù đã "thành công" ở client) bị rơi
+  // mất nếu tắt kết nối ngay lúc đó.
+  await waitForPendingWrites(db).catch(() => {});
   await signOut(auth);
 }
 
@@ -232,7 +263,7 @@ export function recordTopicScore(topicId: string, correct: number, total: number
   if (!currentUser || !cache) return;
   cache.topicScores[topicId] = { correct, total, playedAt: new Date().toISOString() };
   updateDoc(doc(db, "students", currentUser.uid), { topicScores: cache.topicScores }).catch(() => {
-    // Lỗi mạng tạm thời — dữ liệu vẫn đúng ở cache cục bộ, onSnapshot lần sau sẽ tự đồng bộ lại.
+    // Lỗi mạng tạm thời — dữ liệu vẫn đúng ở cache cục bộ, lần đăng nhập sau sẽ đọc lại từ server.
   });
   notify();
 }
@@ -277,29 +308,39 @@ export interface StudentSummary extends RewardTotals {
   access: AccessStatus;
 }
 
+function summaryFromDoc(id: string, data: StudentDoc): StudentSummary {
+  const trophies = trophiesFor(data.totalStars ?? 0);
+  const entries = Object.entries(data.topicScores ?? {});
+  const topicsCompleted = entries.filter(([tid]) => !tid.startsWith("dialogue-")).length;
+  const dialoguesCompleted = entries.filter(([tid]) => tid.startsWith("dialogue-")).length;
+  const lastActive = entries.reduce<string | null>((latest, [, score]) => {
+    if (!latest || score.playedAt > latest) return score.playedAt;
+    return latest;
+  }, null);
+  return {
+    student: { id, name: data.name, createdAt: data.createdAt },
+    totalStars: data.totalStars ?? 0,
+    totalTrophies: trophies,
+    totalMoneyVnd: moneyFor(trophies),
+    topicsCompleted,
+    dialoguesCompleted,
+    lastActive,
+    access: computeAccessStatus(data.createdAt, data.paid ?? false),
+  };
+}
+
+/** Chỉ ADMIN_EMAIL đọc được toàn bộ danh sách (xem Firestore Rules). */
 export async function fetchAllStudentSummaries(): Promise<StudentSummary[]> {
   const snap = await getDocs(collection(db, "students"));
-  return snap.docs.map((docSnap) => {
-    const data = docSnap.data() as StudentDoc;
-    const trophies = trophiesFor(data.totalStars ?? 0);
-    const entries = Object.entries(data.topicScores ?? {});
-    const topicsCompleted = entries.filter(([id]) => !id.startsWith("dialogue-")).length;
-    const dialoguesCompleted = entries.filter(([id]) => id.startsWith("dialogue-")).length;
-    const lastActive = entries.reduce<string | null>((latest, [, score]) => {
-      if (!latest || score.playedAt > latest) return score.playedAt;
-      return latest;
-    }, null);
-    return {
-      student: { id: docSnap.id, name: data.name, createdAt: data.createdAt },
-      totalStars: data.totalStars ?? 0,
-      totalTrophies: trophies,
-      totalMoneyVnd: moneyFor(trophies),
-      topicsCompleted,
-      dialoguesCompleted,
-      lastActive,
-      access: computeAccessStatus(data.createdAt, data.paid ?? false),
-    };
-  });
+  return snap.docs.map((docSnap) => summaryFromDoc(docSnap.id, docSnap.data() as StudentDoc));
+}
+
+/** Học viên thường chỉ xem được tiến độ của chính mình. */
+export async function fetchOwnSummary(): Promise<StudentSummary | null> {
+  if (!currentUser) return null;
+  const snap = await getDoc(doc(db, "students", currentUser.uid));
+  if (!snap.exists()) return null;
+  return summaryFromDoc(snap.id, snap.data() as StudentDoc);
 }
 
 /** Chỉ tài khoản ADMIN_EMAIL mới ghi được (Firestore Rules chặn người khác). */

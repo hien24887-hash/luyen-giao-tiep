@@ -83,8 +83,12 @@ export default function App() {
           </div>
         </nav>
         <header className="page-banner">
-          <h1>Theo dõi học viên</h1>
-          <p>Xem tổng quan sao, cúp, thưởng và tiến độ của từng học viên.</p>
+          <h1>{currentIsAdmin ? "Theo dõi học viên" : "Tiến độ của tôi"}</h1>
+          <p>
+            {currentIsAdmin
+              ? "Xem tổng quan sao, cúp, thưởng và tiến độ của từng học viên."
+              : "Xem sao, cúp, thưởng và tiến độ luyện tập của bạn."}
+          </p>
         </header>
         <main className="page-content">
           <StudentDashboard onClose={() => setView("practice")} />
