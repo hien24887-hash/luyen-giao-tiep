@@ -2,24 +2,35 @@ import { useState } from "react";
 import { communicationTopics, type CommTopic } from "./data/communication";
 import { dialogueTopics, type DialogueTopic } from "./data/dialogues";
 import { useRewards } from "./lib/useRewards";
+import { useCurrentStudent } from "./lib/useCurrentStudent";
+import { exitToStudentGate } from "./lib/progress";
 import { buildAllDialoguesHtml, downloadHtmlFile } from "./lib/exportDialogue";
 import Mascot from "./components/mascot/Mascot";
 import SpeechBubble from "./components/mascot/SpeechBubble";
 import TopicPractice from "./components/communicate/TopicPractice";
 import DialogueReader from "./components/dialogues/DialogueReader";
+import StudentGate from "./components/students/StudentGate";
+import StudentDashboard from "./components/students/StudentDashboard";
 
 type Section = "patterns" | "dialogues";
+type View = "practice" | "dashboard";
 
 export default function App() {
+  const currentStudent = useCurrentStudent();
+  const [view, setView] = useState<View>("practice");
   const [section, setSection] = useState<Section>("patterns");
   const [selectedTopic, setSelectedTopic] = useState<CommTopic | null>(null);
   const [selectedDialogue, setSelectedDialogue] = useState<DialogueTopic | null>(null);
   const rewards = useRewards();
 
+  if (!currentStudent) {
+    return <StudentGate />;
+  }
+
   const greeting =
     rewards.totalStars === 0
-      ? "Chào con! Chọn 1 chủ đề bên dưới, nghe câu hỏi rồi tập trả lời nhé!"
-      : `Con đã có ${rewards.totalStars} ⭐ và ${rewards.totalTrophies} 🏆 rồi! Luyện thêm chủ đề nữa nào!`;
+      ? `Chào ${currentStudent.name}! Chọn 1 chủ đề bên dưới, nghe câu hỏi rồi tập trả lời nhé!`
+      : `${currentStudent.name} đã có ${rewards.totalStars} ⭐ và ${rewards.totalTrophies} 🏆 rồi! Luyện thêm chủ đề nữa nào!`;
 
   function handleSelectSection(next: Section) {
     setSection(next);
@@ -33,13 +44,42 @@ export default function App() {
 
   const showingDetail = section === "patterns" ? Boolean(selectedTopic) : Boolean(selectedDialogue);
 
+  if (view === "dashboard") {
+    return (
+      <div className="app-shell">
+        <nav className="navbar">
+          <span className="nav-brand">💬 Luyện Giao Tiếp Tiếng Anh</span>
+          <div className="reward-badge">
+            <span>👤 {currentStudent.name}</span>
+          </div>
+        </nav>
+        <header className="page-banner">
+          <h1>Theo dõi học viên</h1>
+          <p>Xem tổng quan sao, cúp, thưởng và tiến độ của từng học viên.</p>
+        </header>
+        <main className="page-content">
+          <StudentDashboard onClose={() => setView("practice")} />
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
       <nav className="navbar">
         <span className="nav-brand">💬 Luyện Giao Tiếp Tiếng Anh</span>
-        <div className="reward-badge">
-          <span>⭐ {rewards.totalStars}</span>
-          <span>🏆 {rewards.totalTrophies}</span>
+        <div className="navbar-actions">
+          <div className="reward-badge">
+            <span>👤 {currentStudent.name}</span>
+            <span>⭐ {rewards.totalStars}</span>
+            <span>🏆 {rewards.totalTrophies}</span>
+          </div>
+          <button type="button" className="btn btn-ghost btn-small" onClick={() => setView("dashboard")}>
+            📊 Theo dõi
+          </button>
+          <button type="button" className="btn btn-ghost btn-small" onClick={() => exitToStudentGate()}>
+            🔄 Đổi học viên
+          </button>
         </div>
       </nav>
 
