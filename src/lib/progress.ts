@@ -5,13 +5,14 @@
 
 import {
   createUserWithEmailAndPassword,
+  deleteUser,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
   type User,
 } from "firebase/auth";
-import { collection, doc, getDocs, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 
 // Quy đổi thưởng: 10 ngôi sao -> 1 cúp, 50 cúp -> 50.000đ tiền thưởng.
@@ -129,24 +130,39 @@ export function getAccessStatus(): AccessStatus | null {
 export async function signUp(name: string, email: string, password: string): Promise<void> {
   const trimmedName = name.trim() || "Học viên";
   const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
-  await updateProfile(cred.user, { displayName: trimmedName });
-  const initialDoc: StudentDoc = {
-    name: trimmedName,
-    email: email.trim(),
-    createdAt: new Date().toISOString(),
-    topicScores: {},
-    totalStars: 0,
-    paid: false,
-  };
-  await setDoc(doc(db, "students", cred.user.uid), initialDoc);
-  // Cập nhật cache ngay để UI không phải đợi onSnapshot phản hồi từ server.
-  currentUser = cred.user;
-  cache = initialDoc;
-  notify();
+  try {
+    await updateProfile(cred.user, { displayName: trimmedName });
+    const initialDoc: StudentDoc = {
+      name: trimmedName,
+      email: email.trim(),
+      createdAt: new Date().toISOString(),
+      topicScores: {},
+      totalStars: 0,
+      paid: false,
+    };
+    await setDoc(doc(db, "students", cred.user.uid), initialDoc);
+    // Cập nhật cache ngay để UI không phải đợi onSnapshot phản hồi từ server.
+    currentUser = cred.user;
+    cache = initialDoc;
+    notify();
+  } catch (err) {
+    // Lưu hồ sơ thất bại (thường do mất mạng giữa chừng) — hủy luôn tài khoản
+    // vừa tạo, tránh để lại 1 tài khoản đăng nhập được nhưng không có hồ sơ
+    // (học viên sẽ tưởng nhầm là "không đăng nhập được" ở lần sau).
+    await deleteUser(cred.user).catch(() => {});
+    throw err;
+  }
 }
 
 export async function logIn(email: string, password: string): Promise<void> {
-  await signInWithEmailAndPassword(auth, email.trim(), password);
+  const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+  const snap = await getDoc(doc(db, "students", cred.user.uid));
+  if (!snap.exists()) {
+    // Tài khoản có thể đăng nhập nhưng thiếu hồ sơ dữ liệu (ví dụ do lỗi mạng
+    // lúc đăng ký trước đây) — báo rõ thay vì để màn hình lặp lại im lặng.
+    await signOut(auth);
+    throw Object.assign(new Error("Missing student profile"), { code: "app/missing-profile" });
+  }
 }
 
 export async function logOut(): Promise<void> {
@@ -157,6 +173,8 @@ export async function logOut(): Promise<void> {
 export function translateAuthError(err: unknown): string {
   const code = (err as { code?: string } | null)?.code ?? "";
   switch (code) {
+    case "app/missing-profile":
+      return "Tài khoản này bị thiếu hồ sơ dữ liệu (thường do mất mạng lúc đăng ký trước đây) — vui lòng tạo tài khoản mới với email này.";
     case "auth/email-already-in-use":
       return "Email này đã được đăng ký rồi — hãy chọn “Đăng nhập” thay vì tạo tài khoản mới.";
     case "auth/invalid-email":
