@@ -7,6 +7,7 @@ import {
   createUserWithEmailAndPassword,
   deleteUser,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
@@ -167,6 +168,11 @@ export async function logIn(email: string, password: string): Promise<void> {
 
 export async function logOut(): Promise<void> {
   await signOut(auth);
+}
+
+/** Gửi email đặt lại mật khẩu — dùng khi học viên quên mật khẩu. */
+export async function resetPassword(email: string): Promise<void> {
+  await sendPasswordResetEmail(auth, email.trim());
 }
 
 /** Chuyển mã lỗi Firebase thành thông báo tiếng Việt dễ hiểu cho phụ huynh/bé. */

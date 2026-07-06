@@ -802,6 +802,18 @@ input {
   margin: 0;
 }
 
+.auth-form__info {
+  color: #1b7f4c;
+  font-weight: 700;
+  margin: 0;
+}
+
+.auth-form__forgot {
+  align-self: flex-end;
+  font-size: 0.9rem;
+  margin-top: -0.4rem;
+}
+
 .auth-form__switch {
   text-align: center;
   margin-top: 1.2rem;
