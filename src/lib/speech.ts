@@ -156,10 +156,19 @@ export function startRecognition(opts: StartRecognitionOptions): RecognitionHand
         return; // onend sẽ tự khởi động lại phiên nghe với lang mới
       }
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-        // Bị từ chối quyền micro — không có ý nghĩa để thử lại.
+        // Bị từ chối quyền micro — không có ý nghĩa để thử lại, đây mới là lỗi
+        // thật sự cần báo ra ngoài để dừng hẳn việc ghi âm.
         stoppedByUser = true;
+        opts.onError?.(event.error);
+        return;
       }
-      opts.onError?.(event.error);
+      // Các lỗi còn lại (no-speech, network, aborted...) chỉ là tạm thời — ví
+      // dụ "no-speech" có thể bắn ra chỉ sau 1-2 giây im lặng, RẤT LÂU TRƯỚC
+      // khi bé kịp mở miệng đọc. Trước đây mọi lỗi đều được báo ra ngoài,
+      // khiến nơi gọi (DialogueLineCard/DialogueCard) chốt luôn kết quả ngay
+      // lập tức — coi như bé chưa đọc gì mà đã tính sai hết. Giờ để onend tự
+      // khởi động lại phiên nghe mới trong im lặng, không báo lỗi ra ngoài,
+      // để UI "đang nghe" không bị ngắt giữa chừng.
     };
 
     instance.onend = () => {
