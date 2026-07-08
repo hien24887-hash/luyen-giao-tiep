@@ -10,6 +10,11 @@ interface DialogueLineCardProps {
   color: string;
   result: WordMatchResult[] | null;
   onResult: (result: WordMatchResult[] | null) => void;
+  /** true khi 1 câu KHÁC trong bài đang ghi âm — khóa nút mic của câu này lại,
+   * vì trình duyệt chỉ hỗ trợ tốt 1 phiên nhận diện giọng nói tại 1 thời điểm
+   * (2 phiên cùng lúc tranh chấp micro sẽ khiến 1 trong 2 bị lỗi). */
+  disabled?: boolean;
+  onRecordingChange?: (recording: boolean) => void;
 }
 
 interface LineToken {
@@ -25,7 +30,7 @@ function tokenizeLine(text: string): LineToken[] {
   });
 }
 
-export default function DialogueLineCard({ line, color, result, onResult }: DialogueLineCardProps) {
+export default function DialogueLineCard({ line, color, result, onResult, disabled, onRecordingChange }: DialogueLineCardProps) {
   const micSupported = useMemo(() => isSpeechRecognitionSupported(), []);
   const tokens = useMemo(() => tokenizeLine(line.text), [line.text]);
   const [isRecording, setIsRecording] = useState(false);
@@ -56,13 +61,14 @@ export default function DialogueLineCard({ line, color, result, onResult }: Dial
   }
 
   function beginRecording() {
-    if (!micSupported) return;
+    if (!micSupported || disabled) return;
     transcriptRef.current = "";
     finalizedRef.current = false;
     deniedRef.current = false;
     setMicError(null);
     setLiveTranscript("");
     setIsRecording(true);
+    onRecordingChange?.(true);
 
     recognitionRef.current = startRecognition({
       continuous: true,
@@ -72,6 +78,7 @@ export default function DialogueLineCard({ line, color, result, onResult }: Dial
       },
       onEnd: () => {
         setIsRecording(false);
+        onRecordingChange?.(false);
         if (!deniedRef.current) finalizeLine(transcriptRef.current);
       },
       onError: (code) => {
@@ -81,6 +88,7 @@ export default function DialogueLineCard({ line, color, result, onResult }: Dial
         // chỉ báo rõ nguyên nhân để phụ huynh xử lý.
         deniedRef.current = true;
         setIsRecording(false);
+        onRecordingChange?.(false);
         setMicError(describeMicError(code));
       },
     });
@@ -150,7 +158,8 @@ export default function DialogueLineCard({ line, color, result, onResult }: Dial
       {micError && <p className="mic-error">{micError}</p>}
 
       <div className="btn-row" style={{ marginTop: "0.7rem" }}>
-        <MicButton recording={isRecording} supported={micSupported} onClick={handleToggleRecording} />
+        <MicButton recording={isRecording} supported={micSupported && !disabled} onClick={handleToggleRecording} />
+        {disabled && <span className="mic-locked-note">Đang có câu khác ghi âm — hãy đợi câu đó xong nhé.</span>}
         {result && (
           <button type="button" className="btn btn-ghost" onClick={handleRetry} disabled={isRecording}>
             🔁 Đọc lại câu này

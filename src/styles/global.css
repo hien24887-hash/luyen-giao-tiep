@@ -270,6 +270,12 @@ input {
   font-weight: 700;
 }
 
+.mic-locked-note {
+  font-style: italic;
+  color: #6b5b4d;
+  font-size: 0.9rem;
+}
+
 .score-line {
   text-align: center;
   font-weight: 700;

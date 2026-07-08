@@ -23,6 +23,7 @@ export default function DialogueReader({ dialogue }: DialogueReaderProps) {
   );
   const [finished, setFinished] = useState(false);
   const [rewardPopup, setRewardPopup] = useState<AwardResult | null>(null);
+  const [recordingLineIdx, setRecordingLineIdx] = useState<number | null>(null);
 
   function handleResult(lineIdx: number, result: WordMatchResult[] | null) {
     setResultsByLine((prev) => {
@@ -116,6 +117,8 @@ export default function DialogueReader({ dialogue }: DialogueReaderProps) {
             color={dialogue.color}
             result={resultsByLine[idx]}
             onResult={(r) => handleResult(idx, r)}
+            disabled={recordingLineIdx !== null && recordingLineIdx !== idx}
+            onRecordingChange={(recording) => setRecordingLineIdx(recording ? idx : null)}
           />
         ))}
       </div>

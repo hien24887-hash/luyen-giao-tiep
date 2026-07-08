@@ -19,6 +19,7 @@ export default function TopicPractice({ topic }: TopicPracticeProps) {
   const [resultsByItem, setResultsByItem] = useState<(WordMatchResult[] | null)[]>(() => topic.items.map(() => null));
   const [rewardPopup, setRewardPopup] = useState<AwardResult | null>(null);
   const [completed, setCompleted] = useState(false);
+  const [recordingItemIdx, setRecordingItemIdx] = useState<number | null>(null);
 
   const leftItems = topic.items.slice(0, 5);
   const rightItems = topic.items.slice(5, 10);
@@ -93,6 +94,8 @@ export default function TopicPractice({ topic }: TopicPracticeProps) {
               color={topic.color}
               result={resultsByItem[i]}
               onResult={(r) => handleResult(i, r)}
+              disabled={recordingItemIdx !== null && recordingItemIdx !== i}
+              onRecordingChange={(recording) => setRecordingItemIdx(recording ? i : null)}
             />
           ))}
         </div>
@@ -110,6 +113,8 @@ export default function TopicPractice({ topic }: TopicPracticeProps) {
                 color={topic.color}
                 result={resultsByItem[itemIndex]}
                 onResult={(r) => handleResult(itemIndex, r)}
+                disabled={recordingItemIdx !== null && recordingItemIdx !== itemIndex}
+                onRecordingChange={(recording) => setRecordingItemIdx(recording ? itemIndex : null)}
               />
             );
           })}

@@ -11,6 +11,10 @@ interface DialogueCardProps {
   color: string;
   result: WordMatchResult[] | null;
   onResult: (result: WordMatchResult[] | null) => void;
+  /** true khi 1 mẫu câu KHÁC đang ghi âm — khóa nút mic của thẻ này lại, vì
+   * trình duyệt chỉ hỗ trợ tốt 1 phiên nhận diện giọng nói tại 1 thời điểm. */
+  disabled?: boolean;
+  onRecordingChange?: (recording: boolean) => void;
 }
 
 interface AnswerToken {
@@ -29,7 +33,7 @@ function tokenizeAnswer(answer: string, answerIpa: string): AnswerToken[] {
   });
 }
 
-export default function DialogueCard({ item, index, color, result, onResult }: DialogueCardProps) {
+export default function DialogueCard({ item, index, color, result, onResult, disabled, onRecordingChange }: DialogueCardProps) {
   const micSupported = useMemo(() => isSpeechRecognitionSupported(), []);
   const tokens = useMemo(() => tokenizeAnswer(item.answer, item.answerIpa), [item.answer, item.answerIpa]);
   const [isRecording, setIsRecording] = useState(false);
@@ -60,13 +64,14 @@ export default function DialogueCard({ item, index, color, result, onResult }: D
   }
 
   function beginRecording() {
-    if (!micSupported) return;
+    if (!micSupported || disabled) return;
     transcriptRef.current = "";
     finalizedRef.current = false;
     deniedRef.current = false;
     setMicError(null);
     setLiveTranscript("");
     setIsRecording(true);
+    onRecordingChange?.(true);
 
     recognitionRef.current = startRecognition({
       continuous: true,
@@ -76,6 +81,7 @@ export default function DialogueCard({ item, index, color, result, onResult }: D
       },
       onEnd: () => {
         setIsRecording(false);
+        onRecordingChange?.(false);
         if (!deniedRef.current) finalizeAnswer(transcriptRef.current);
       },
       onError: (code) => {
@@ -84,6 +90,7 @@ export default function DialogueCard({ item, index, color, result, onResult }: D
         // chưa hề nói được gì), chỉ báo rõ nguyên nhân.
         deniedRef.current = true;
         setIsRecording(false);
+        onRecordingChange?.(false);
         setMicError(describeMicError(code));
       },
     });
@@ -171,7 +178,8 @@ export default function DialogueCard({ item, index, color, result, onResult }: D
         <button type="button" className="btn btn-ghost" onClick={() => speak(item.answer)} disabled={isRecording}>
           🔊 Nghe câu trả lời mẫu
         </button>
-        <MicButton recording={isRecording} supported={micSupported} onClick={handleToggleRecording} />
+        <MicButton recording={isRecording} supported={micSupported && !disabled} onClick={handleToggleRecording} />
+        {disabled && <span className="mic-locked-note">Đang có câu khác ghi âm — hãy đợi câu đó xong nhé.</span>}
         {result && (
           <button type="button" className="btn btn-ghost" onClick={handleRetry} disabled={isRecording}>
             🔁 Thử lại
