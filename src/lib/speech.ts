@@ -93,6 +93,19 @@ export interface RecognitionHandle {
   stop: () => void;
 }
 
+/** Chuyển mã lỗi nhận diện giọng nói (từ onError) thành thông báo tiếng Việt dễ hiểu. */
+export function describeMicError(code: string): string {
+  switch (code) {
+    case "not-allowed":
+    case "service-not-allowed":
+      return "⚠️ Trình duyệt chưa được cấp quyền micro. Vui lòng bật quyền micro cho trang này rồi bấm lại.";
+    case "audio-capture":
+      return "⚠️ Không tìm thấy micro trên thiết bị này. Vui lòng kiểm tra lại micro rồi thử lại.";
+    default:
+      return "⚠️ Không thể sử dụng micro lúc này. Vui lòng thử lại.";
+  }
+}
+
 export interface StartRecognitionOptions {
   lang?: string;
   /** Mặc định true: tiếp tục nghe qua các khoảng ngắt nghỉ giữa các từ/cụm
@@ -155,9 +168,11 @@ export function startRecognition(opts: StartRecognitionOptions): RecognitionHand
         lang = "en-US";
         return; // onend sẽ tự khởi động lại phiên nghe với lang mới
       }
-      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-        // Bị từ chối quyền micro — không có ý nghĩa để thử lại, đây mới là lỗi
-        // thật sự cần báo ra ngoài để dừng hẳn việc ghi âm.
+      if (event.error === "not-allowed" || event.error === "service-not-allowed" || event.error === "audio-capture") {
+        // Từ chối quyền micro, trình duyệt chặn hẳn tính năng, hoặc không tìm
+        // thấy micro nào trên thiết bị — không có ý nghĩa để thử lại (thử lại
+        // mãi chỉ khiến nút kẹt ở "Đang nghe" vô thời hạn mà không báo gì, bé
+        // sẽ tưởng app bị treo). Đây là lỗi thật sự cần báo ra ngoài.
         stoppedByUser = true;
         opts.onError?.(event.error);
         return;

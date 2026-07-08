@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DialogueLine } from "../../data/dialogues";
 import { alignTranscript, type WordMatchResult } from "../../lib/matchWords";
-import { isSpeechRecognitionSupported, speak, startRecognition, type RecognitionHandle } from "../../lib/speech";
+import { describeMicError, isSpeechRecognitionSupported, speak, startRecognition, type RecognitionHandle } from "../../lib/speech";
 import WordChip, { type ChipStatus } from "../reading/WordChip";
 import MicButton from "../reading/MicButton";
 
@@ -30,9 +30,11 @@ export default function DialogueLineCard({ line, color, result, onResult }: Dial
   const tokens = useMemo(() => tokenizeLine(line.text), [line.text]);
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
+  const [micError, setMicError] = useState<string | null>(null);
   const recognitionRef = useRef<RecognitionHandle | null>(null);
   const transcriptRef = useRef("");
   const finalizedRef = useRef(false);
+  const deniedRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -57,6 +59,8 @@ export default function DialogueLineCard({ line, color, result, onResult }: Dial
     if (!micSupported) return;
     transcriptRef.current = "";
     finalizedRef.current = false;
+    deniedRef.current = false;
+    setMicError(null);
     setLiveTranscript("");
     setIsRecording(true);
 
@@ -68,11 +72,16 @@ export default function DialogueLineCard({ line, color, result, onResult }: Dial
       },
       onEnd: () => {
         setIsRecording(false);
-        finalizeLine(transcriptRef.current);
+        if (!deniedRef.current) finalizeLine(transcriptRef.current);
       },
-      onError: () => {
+      onError: (code) => {
+        // Chỉ còn lỗi micro thật sự (từ chối quyền, không tìm thấy micro...)
+        // mới tới được đây (các lỗi tạm thời khác đã được speech.ts tự xử lý
+        // âm thầm) — KHÔNG được chấm sai câu này (bé chưa hề đọc được gì),
+        // chỉ báo rõ nguyên nhân để phụ huynh xử lý.
+        deniedRef.current = true;
         setIsRecording(false);
-        finalizeLine(transcriptRef.current);
+        setMicError(describeMicError(code));
       },
     });
   }
@@ -89,6 +98,7 @@ export default function DialogueLineCard({ line, color, result, onResult }: Dial
     recognitionRef.current?.stop();
     onResult(null);
     setLiveTranscript("");
+    setMicError(null);
   }
 
   function handleWordClick(token: LineToken) {
@@ -137,6 +147,7 @@ export default function DialogueLineCard({ line, color, result, onResult }: Dial
           Đọc xong thì bấm "Dừng đọc".
         </p>
       )}
+      {micError && <p className="mic-error">{micError}</p>}
 
       <div className="btn-row" style={{ marginTop: "0.7rem" }}>
         <MicButton recording={isRecording} supported={micSupported} onClick={handleToggleRecording} />

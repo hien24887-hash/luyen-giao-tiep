@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CommItem } from "../../data/communication";
 import { alignTranscript, type WordMatchResult } from "../../lib/matchWords";
-import { isSpeechRecognitionSupported, speak, startRecognition, type RecognitionHandle } from "../../lib/speech";
+import { describeMicError, isSpeechRecognitionSupported, speak, startRecognition, type RecognitionHandle } from "../../lib/speech";
 import WordChip, { type ChipStatus } from "../reading/WordChip";
 import MicButton from "../reading/MicButton";
 
@@ -34,9 +34,11 @@ export default function DialogueCard({ item, index, color, result, onResult }: D
   const tokens = useMemo(() => tokenizeAnswer(item.answer, item.answerIpa), [item.answer, item.answerIpa]);
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
+  const [micError, setMicError] = useState<string | null>(null);
   const recognitionRef = useRef<RecognitionHandle | null>(null);
   const transcriptRef = useRef("");
   const finalizedRef = useRef(false);
+  const deniedRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -61,6 +63,8 @@ export default function DialogueCard({ item, index, color, result, onResult }: D
     if (!micSupported) return;
     transcriptRef.current = "";
     finalizedRef.current = false;
+    deniedRef.current = false;
+    setMicError(null);
     setLiveTranscript("");
     setIsRecording(true);
 
@@ -72,11 +76,15 @@ export default function DialogueCard({ item, index, color, result, onResult }: D
       },
       onEnd: () => {
         setIsRecording(false);
-        finalizeAnswer(transcriptRef.current);
+        if (!deniedRef.current) finalizeAnswer(transcriptRef.current);
       },
-      onError: () => {
+      onError: (code) => {
+        // Chỉ còn lỗi micro thật sự mới tới được đây (các lỗi tạm thời khác đã
+        // được speech.ts tự xử lý âm thầm) — KHÔNG được chấm sai câu này (bé
+        // chưa hề nói được gì), chỉ báo rõ nguyên nhân.
+        deniedRef.current = true;
         setIsRecording(false);
-        finalizeAnswer(transcriptRef.current);
+        setMicError(describeMicError(code));
       },
     });
   }
@@ -93,6 +101,7 @@ export default function DialogueCard({ item, index, color, result, onResult }: D
     recognitionRef.current?.stop();
     onResult(null);
     setLiveTranscript("");
+    setMicError(null);
   }
 
   function handleWordClick(token: AnswerToken) {
@@ -153,6 +162,7 @@ export default function DialogueCard({ item, index, color, result, onResult }: D
           Nói xong thì bấm "Dừng đọc".
         </p>
       )}
+      {micError && <p className="mic-error">{micError}</p>}
 
       <div className="btn-row" style={{ marginTop: "0.8rem" }}>
         <button type="button" className="btn btn-ghost" onClick={() => speak(item.question)} disabled={isRecording}>
