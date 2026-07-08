@@ -98,11 +98,11 @@ export function describeMicError(code: string): string {
   switch (code) {
     case "not-allowed":
     case "service-not-allowed":
-      return "⚠️ Trình duyệt chưa được cấp quyền micro. Vui lòng bật quyền micro cho trang này rồi bấm lại.";
+      return `⚠️ Trình duyệt chưa được cấp quyền micro. Vui lòng bật quyền micro cho trang này rồi bấm lại. (Mã lỗi: ${code})`;
     case "audio-capture":
-      return "⚠️ Không tìm thấy micro trên thiết bị này. Vui lòng kiểm tra lại micro rồi thử lại.";
+      return `⚠️ Không tìm thấy micro trên thiết bị này. Vui lòng kiểm tra lại micro rồi thử lại. (Mã lỗi: ${code})`;
     default:
-      return "⚠️ Không thể sử dụng micro lúc này. Vui lòng thử lại.";
+      return `⚠️ Không thể sử dụng micro lúc này. Vui lòng thử lại. (Mã lỗi: ${code})`;
   }
 }
 
