@@ -101,6 +101,8 @@ export function describeMicError(code: string): string {
       return `⚠️ Trình duyệt chưa được cấp quyền micro. Vui lòng bật quyền micro cho trang này rồi bấm lại. (Mã lỗi: ${code})`;
     case "audio-capture":
       return `⚠️ Không tìm thấy micro trên thiết bị này. Vui lòng kiểm tra lại micro rồi thử lại. (Mã lỗi: ${code})`;
+    case "give-up":
+      return "⚠️ Không nghe được giọng nói sau nhiều lần thử. Có thể do mạng đang chặn kết nối tới máy chủ nhận diện giọng nói, hoặc micro không thu được âm thanh. Vui lòng kiểm tra lại mạng/micro rồi thử lại.";
     default:
       return `⚠️ Không thể sử dụng micro lúc này. Vui lòng thử lại. (Mã lỗi: ${code})`;
   }
@@ -139,6 +141,13 @@ export function startRecognition(opts: StartRecognitionOptions): RecognitionHand
   let lang = opts.lang ?? RECOGNITION_LANG;
   let triedFallbackLang = false;
   let recognition: SpeechRecognitionLike = new Ctor();
+  // Nếu phiên nghe cứ tự khởi động lại liên tục mà KHÔNG BAO GIỜ nghe được 1
+  // chữ nào (ví dụ mạng bị chặn tới máy chủ nhận diện giọng nói của Google,
+  // hoặc micro phần cứng có vấn đề dù quyền đã được cấp đủ) — im lặng thử lại
+  // mãi mãi sẽ khiến bé tưởng app bị treo. Đếm số lần khởi động lại liên tiếp
+  // mà không có kết quả thật sự, quá 1 ngưỡng thì báo lỗi thay vì thử lại nữa.
+  let restartsWithoutSpeech = 0;
+  const MAX_RESTARTS_WITHOUT_SPEECH = 6;
 
   function attach(instance: SpeechRecognitionLike) {
     instance.lang = lang;
@@ -156,6 +165,7 @@ export function startRecognition(opts: StartRecognitionOptions): RecognitionHand
         text += event.results[i][0].transcript + " ";
       }
       lastSessionText = text.trim();
+      if (lastSessionText) restartsWithoutSpeech = 0;
       opts.onResult((carriedTranscript + " " + lastSessionText).trim(), false);
     };
 
@@ -189,6 +199,15 @@ export function startRecognition(opts: StartRecognitionOptions): RecognitionHand
     instance.onend = () => {
       if (stoppedByUser) {
         opts.onEnd?.();
+        return;
+      }
+      restartsWithoutSpeech += 1;
+      if (restartsWithoutSpeech > MAX_RESTARTS_WITHOUT_SPEECH) {
+        // Đã thử lại nhiều lần liên tiếp mà không nghe được chữ nào — khả năng
+        // cao là mạng không tới được máy chủ nhận diện hoặc micro phần cứng có
+        // vấn đề. Dừng hẳn và báo lỗi thay vì tiếp tục thử lại vô thời hạn.
+        stoppedByUser = true;
+        opts.onError?.("give-up");
         return;
       }
       // Gộp phần đã nghe được của phiên vừa kết thúc vào phần "đã chốt" rồi
